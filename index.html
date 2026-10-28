@@ -193,6 +193,9 @@ code.tpl{display:block;font:11.5px/1.5 ui-monospace,Menlo,Consolas,monospace;bac
 .apibox textarea{min-height:54px}
 .apibox .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 @media (max-width:760px){.edbar{left:68px;transform:none;max-width:calc(100% - 80px)}.apibox .two{grid-template-columns:1fr}}
+.srow{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:8px 10px;border:1px solid var(--line);border-radius:12px;flex-wrap:wrap}
+.srow small{display:block;color:var(--muted);font-size:12px}
+.srow small.er{color:var(--bad)}
 </style>
 
 <div class="app">
@@ -272,6 +275,7 @@ code.tpl{display:block;font:11.5px/1.5 ui-monospace,Menlo,Consolas,monospace;bac
     </div>
     <div class="mgrid">
       <div style="display:grid;gap:10px;align-content:start">
+        <div class="apibox" style="border-top:0;padding-top:0;margin-top:0"><p class="lbl">Fontes de dados</p><div id="srcList" style="display:grid;gap:6px"></div></div>
         <div class="drop" id="drop" tabindex="0" role="button" aria-label="Escolher arquivo"><b>Arraste um .xlsx ou .csv aqui</b><span>ou clique para escolher. Um .xlsx pode ter uma aba de colaboradores e outra de salas.</span></div>
         <input type="file" id="file" accept=".xlsx,.xls,.xlsm,.ods,.csv,.tsv,.txt" hidden>
         <div class="status" id="status" role="status" aria-live="polite"></div>
@@ -280,15 +284,17 @@ code.tpl{display:block;font:11.5px/1.5 ui-monospace,Menlo,Consolas,monospace;bac
         <textarea id="paste" placeholder="Cole aqui, com a linha de cabeçalho"></textarea>
         <div class="sp"><button class="btn sm" id="btnPaste" type="button">Aplicar dados colados</button>
         <button class="btn sm" id="btnSample" type="button">Usar dados de exemplo</button></div>
-        <div class="apibox">
-          <p class="lbl">Ou conecte uma API</p>
+        <div class="apibox" id="apiBox">
+          <p class="lbl" id="apiTitle">Adicionar uma API</p>
+          <div class="two"><input id="apiName" type="text" placeholder="Nome da fonte (ex.: Convenia)" autocomplete="off" aria-label="Nome da fonte">
+          <select id="apiPreset" aria-label="Tipo de API"><option value="custom">API própria (formato do texto ao lado)</option><option value="convenia">Convenia</option><option value="generic">Outro sistema (JSON ou CSV)</option></select></div>
           <input id="apiUrl" type="url" placeholder="https://sua-api.com/colaboradores" autocomplete="off" aria-label="URL da API de colaboradores">
           <input id="apiUrlR" type="url" placeholder="URL das salas (opcional)" autocomplete="off" aria-label="URL da API de salas">
           <textarea id="apiHdr" placeholder="Cabeçalhos, um por linha&#10;Authorization: Bearer seu-token" aria-label="Cabeçalhos da API"></textarea>
-          <div class="two"><input id="apiPath" type="text" placeholder="Caminho dos dados (ex.: data.items)" autocomplete="off" aria-label="Caminho dos dados no JSON">
+          <div class="two"><input id="apiPath" type="text" value="data" placeholder="Caminho dos dados (ex.: data.items)" autocomplete="off" aria-label="Caminho dos dados no JSON">
           <select id="apiEvery" aria-label="Atualização automática"><option value="0">Atualizar só manualmente</option><option value="1">A cada 1 min</option><option value="5">A cada 5 min</option><option value="15">A cada 15 min</option><option value="60">A cada 1 hora</option></select></div>
-          <div class="sp"><button class="btn sm orange" id="apiGo" type="button">Conectar e carregar</button><button class="btn sm" id="apiOff" type="button" hidden>Desconectar</button></div>
-          <p class="note">A API deve devolver uma lista JSON (ou CSV) com campos como nome, departamento, admissão, salário, sexo (também em inglês: name, department, hire_date). Ela precisa liberar CORS para o navegador. O token fica salvo só neste navegador.</p>
+          <div class="sp"><button class="btn sm orange" id="apiGo" type="button">Adicionar e carregar</button><button class="btn sm" id="apiCancel" type="button" hidden>Cancelar edição</button></div>
+          <p class="note">Aceita JSON (lista ou objeto com a lista) e CSV, com paginação por next_page_url. Os campos são reconhecidos como as colunas da planilha, também em inglês. A API precisa liberar CORS para o navegador; o token fica salvo só neste navegador.</p>
         </div>
       </div>
       <div style="display:grid;gap:8px;align-content:start">
@@ -300,6 +306,10 @@ Carlos Lima;Logística;Auxiliar;2400,00;05/08/2021;30/06/2026;0;0;M</code>
         <code class="tpl">Sala;Capacidade;Data;Início;Fim;Assunto;Responsável;Participantes
 Sala Executiva;10;26/10/2026;09:00;10:00;Alinhamento do DP;Marina;6</code>
         <p class="note">Faltas e Horas Extras são os valores do mês atual de cada pessoa. Demissão em branco significa colaborador ativo. A Data das salas é opcional.</p>
+        <div class="apibox"><p class="lbl">Texto para configurar a API do outro sistema</p>
+          <textarea id="specTxt" readonly aria-label="Especificação da API" style="min-height:230px"></textarea>
+          <div class="sp"><button class="btn sm orange" id="specCopy" type="button">Copiar texto</button></div>
+          <p class="note">Envie este texto ao time (ou à IA) que cuida do sistema de origem. Ele descreve os dois endereços, os campos, o formato e as regras de acesso.</p></div>
       </div>
     </div>
   </div>
@@ -409,26 +419,27 @@ function toMin(v){
 const norm=s=>String(s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
 const SYN={
   nome:['nome','colaborador','funcionario','empregado','name','fullname','employeename','nomecompleto','employee'],
-  depto:['departamento','depto','setor','area','centrodecusto','department','dept','departmentname','departamentonome'],
+  depto:['departamento','depto','setor','area','department','dept','departmentname','departamentonome'],
+  cc:['centrodecusto','centrocusto','cc','costcenter','costcentre','centrodecustos','andar','floor'],
   cargo:['cargo','funcao','role','position','jobtitle','title','job'],
   sal:['salario','salariobase','remuneracao','salariomensal','salary','wage','basesalary','pay'],
-  adm:['admissao','dataadmissao','dtadmissao','dataadm','hiredate','hiredat','startdate','admissiondate','hiredon','dateofhire','admittedat'],
-  dem:['demissao','desligamento','datademissao','datadesligamento','dtdemissao','datadesl','terminationdate','enddate','termination','terminatedat','leavedate'],
+  adm:['admissao','dataadmissao','dtadmissao','dataadm','hiredate','hiredat','startdate','admissiondate','hiredon','dateofhire','admittedat','hiringdate'],
+  dem:['demissao','desligamento','datademissao','datadesligamento','dtdemissao','datadesl','terminationdate','enddate','termination','terminatedat','leavedate','dismissaldate','dismissal'],
   faltas:['faltas','ausencias','faltasmes','absences','absence','absencecount'],
   he:['horasextras','horaextra','horasextra','he','hrsextras','overtime','overtimehours'],
   sexo:['sexo','genero','gender','sex']
 };
 const RSYN={
   sala:['sala','salas','ambiente','nomedasala','room','roomname'],
-  cap:['capacidade','lugares','cap'],
-  data:['data','dia','datareuniao'],
+  cap:['capacidade','lugares','cap','capacity','seats','lotacao','pessoasnasala','qtdlugares'],
+  data:['data','dia','datareuniao','date','meetingdate'],
   ini:['inicio','horainicio','hrinicio','inicial','hinicio','comeco','start','starttime','begin'],
   fim:['fim','horafim','termino','final','hrfim','hfim','end','endtime','finish'],
-  assunto:['assunto','titulo','reuniao','evento','descricao','pauta'],
-  resp:['responsavel','organizador','solicitante'],
-  pessoas:['participantes','pessoas','qtdpessoas','numerodepessoas']
+  assunto:['assunto','titulo','reuniao','evento','descricao','pauta','subject','title','topic','meeting'],
+  resp:['responsavel','organizador','solicitante','responsible','organizer','owner','host','requester'],
+  pessoas:['participantes','pessoas','qtdpessoas','numerodepessoas','attendees','participants','attendeescount','participantscount','qtdparticipantes']
 };
-const LABEL={nome:'Nome',depto:'Departamento',cargo:'Cargo',sal:'Salário',adm:'Admissão',dem:'Demissão',faltas:'Faltas',he:'Horas extras',sexo:'Sexo'};
+const LABEL={nome:'Nome',depto:'Departamento',cargo:'Cargo',sal:'Salário',adm:'Admissão',dem:'Demissão',faltas:'Faltas',he:'Horas extras',sexo:'Sexo',cc:'Centro de custo'};
 function detect(rows,syn){
   let best={score:0,row:0,map:{}};
   for(let i=0;i<Math.min(rows.length,12);i++){
@@ -465,7 +476,7 @@ function buildEmployees(rows,h){
     if(dem&&dem<adm){badDem++;dem=null}
     const sal=('sal' in m)?toNum(r[m.sal]):NaN,fa=('faltas' in m)?toNum(r[m.faltas]):0,he=('he' in m)?toNum(r[m.he]):0;
     emps.push({nome:('nome' in m)?String(r[m.nome]??'').trim():'',depto:String(r[m.depto]??'').trim()||'Sem departamento',cargo:('cargo' in m)?String(r[m.cargo]??'').trim():'',
-      sal,adm,dem,faltas:isFinite(fa)?fa:0,he:isFinite(he)?he:0,sexo:('sexo' in m)?String(r[m.sexo]??'').trim():''});
+      sal,adm,dem,faltas:isFinite(fa)?fa:0,he:isFinite(he)?he:0,sexo:('sexo' in m)?String(r[m.sexo]??'').trim():'',cc:('cc' in m&&m.cc!==m.depto)?String(r[m.cc]??'').trim():''});
   }
   const notes=[];
   if(noDate)notes.push(noDate+' linha(s) sem data de admissão válida foram ignoradas');
@@ -501,12 +512,12 @@ const KEY='dp3d.v2';
 const iso=d=>d?d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'):'';
 function save(){
   try{localStorage.setItem(KEY,JSON.stringify({source:SOURCE,roomsrc:ROOMSRC,map:MAPE,notes:NOTES,rooms:ROOMS,
-    emps:EMPS.map(e=>[e.nome,e.depto,e.cargo,isFinite(e.sal)?e.sal:null,iso(e.adm),iso(e.dem),e.faltas,e.he,e.sexo])}))}catch(e){}
+    emps:EMPS.map(e=>[e.nome,e.depto,e.cargo,isFinite(e.sal)?e.sal:null,iso(e.adm),iso(e.dem),e.faltas,e.he,e.sexo,e.cc||''])}))}catch(e){}
 }
 function load(){
   try{
     const j=JSON.parse(localStorage.getItem(KEY)||'null');if(!j||!j.emps||!j.emps.length)return false;
-    EMPS=j.emps.map(a=>({nome:a[0],depto:a[1],cargo:a[2],sal:a[3]==null?NaN:a[3],adm:toDate(a[4]),dem:toDate(a[5]),faltas:a[6],he:a[7],sexo:a[8]})).filter(e=>e.adm);
+    EMPS=j.emps.map(a=>({nome:a[0],depto:a[1],cargo:a[2],sal:a[3]==null?NaN:a[3],adm:toDate(a[4]),dem:toDate(a[5]),faltas:a[6],he:a[7],sexo:a[8],cc:a[9]||''})).filter(e=>e.adm);
     MAPE=j.map||{};SOURCE=j.source||'planilha';ROOMSRC=j.roomsrc||'exemplo';NOTES=j.notes||[];
     ROOMS=(j.rooms&&j.rooms.length)?j.rooms:sampleRooms();
     HAS=hasFrom(MAPE,EMPS);return EMPS.length>0;
@@ -531,6 +542,7 @@ function defaultCfg(sample,keepLooks){
       deptFloor:{'RH / DP':'f1','Administrativo':'f1','Produção':'f2','Logística':'f2','Manutenção':'f2','Comercial':'f3','Financeiro':'f3','TI':'f3'},
       rooms:{'Sala Executiva':{floor:'f4',model:'round',seats:8},'Sala de Treinamento':{floor:'f4',model:'theater',seats:12},'Sala de Entrevistas':{floor:'f4',model:'round',seats:4}},looks,layout:{}};
   }else{
+    if(HAS.cc&&ccCfg(looks))return;
     const names=DEPT.map(d=>d.name),per=4,nF=clamp(Math.ceil(names.length/per),1,ROOMS.length?7:8),floors=[],deptFloor={},rooms={};
     for(let i=0;i<nF;i++)floors.push({id:'f'+(i+1),name:'Andar '+(i+1),reception:i===0});
     names.forEach((n,i)=>{deptFloor[n]=floors[Math.min(Math.floor(i/per),nF-1)].id});
@@ -1310,7 +1322,7 @@ function pPerson(id){
     '<div class="k"><small>Salário base</small><b>'+(HAS.sal&&isFinite(e.sal)?fmtBRL(e.sal):'—')+'</b></div>'+
     '<div class="k"><small>Faltas no mês</small><b>'+(HAS.faltas?(e.faltas||0):'—')+'</b></div>'+
     '<div class="k"><small>Horas extras no mês</small><b>'+(HAS.he?(e.he||0)+' h':'—')+'</b></div>'+
-    '<div class="k"><small>Sexo</small><b>'+(e.sexo?esc(e.sexo):'—')+'</b></div></div>'+cmp+
+    '<div class="k"><small>Sexo</small><b>'+(e.sexo?esc(e.sexo):'—')+'</b></div>'+(e.cc?'<div class="k"><small>Centro de custo</small><b>'+esc(e.cc)+'</b></div>':'')+'</div>'+cmp+
     lookUI(e)+(PERS.has(id)?'':'<p class="note">Esta pessoa não está entre as 6 mostradas em 3D. Ao personalizar o visual, ela passa a aparecer na mesa do departamento.</p>')+
     '<button class="btn dark" type="button" data-dept="'+esc(e.depto)+'">Ver departamento</button>';
   return {title:e.nome||'Colaborador',sub:e.depto,html:h,back:{kind:'dept',name:e.depto}};
@@ -1439,33 +1451,6 @@ function chipsUI(){
   const sample=SOURCE==='exemplo';
   $('#chips').innerHTML=Object.keys(LABEL).map(k=>{const on=sample?true:(MAPE&&k in MAPE);return '<span class="chip'+(on?' on':'')+'">'+LABEL[k]+((k==='depto'||k==='adm')?' *':'')+'</span>'}).join('')+'<span class="chip'+(ROOMSRC!=='exemplo'?' on':'')+'">Salas'+(ROOMSRC==='exemplo'?' (exemplo)':'')+'</span>';
 }
-function importTables(tables,label){
-  let bestE=null,bestR=null;
-  for(const t of tables){
-    const e=detect(t.rows,SYN),r=detect(t.rows,RSYN);
-    if('depto' in e.map&&'adm' in e.map&&(!bestE||e.score>bestE.h.score))bestE={t,h:e};
-    if('sala' in r.map&&'ini' in r.map&&(!bestR||r.score>bestR.h.score))bestR={t,h:r};
-  }
-  if(!bestE&&!bestR){
-    const seen=((tables[0]&&tables[0].rows[detect(tables[0].rows,SYN).row])||[]).filter(x=>String(x).trim()).slice(0,8).join(', ');
-    setStatus('err','Não encontrei colunas reconhecidas. Para colaboradores use Departamento e Admissão. Para salas use Sala e Início. Cabeçalhos lidos: '+(seen||'nenhum')+'.');return;
-  }
-  const msgs=[],wasSample=SOURCE==='exemplo';
-  if(bestE){
-    const r=buildEmployees(bestE.t.rows,bestE.h);
-    if(!r.emps.length){setStatus('err','Achei as colunas, mas nenhuma linha tem data de admissão válida. Use dd/mm/aaaa.');return}
-    EMPS=r.emps;MAPE=bestE.h.map;NOTES=r.notes;SOURCE=label;HAS=hasFrom(MAPE,EMPS);
-    msgs.push(fmtInt(EMPS.length)+' colaboradores'+(r.notes.length?' ('+r.notes.join('; ')+')':''));
-  }
-  if(bestR){
-    const r=buildRooms(bestR.t.rows,bestR.h);
-    if(r.rooms.length){ROOMS=r.rooms;ROOMSRC=label;msgs.push(ROOMS.length+' salas'+(r.notes.length?' ('+r.notes.join('; ')+')':''))}
-  }
-  recalc();
-  if(bestE&&wasSample){defaultCfg(false,true);CUR=null}
-  ensureCfg();save();saveCfg();rebuildAll();chipsUI();
-  setStatus('ok','Importado: '+msgs.join(' e ')+'.'+((bestE&&!bestR&&ROOMSRC==='exemplo')?' As salas ainda são de exemplo.':''));
-}
 function rebuildAll(){
   ensureCfg();buildWorld();drawScreen();greet();clockUI();railUI();checkFocus();
 }
@@ -1484,10 +1469,10 @@ async function handleFile(file){
 }
 function useSample(){
   EMPS=makeSample();ROOMS=sampleRooms();SOURCE='exemplo';ROOMSRC='exemplo';MAPE=null;NOTES=[];HAS=SAMPLE_HAS;
-  try{localStorage.removeItem(KEY)}catch(e){}
-  recalc();defaultCfg(true,true);CUR=null;ensureCfg();saveCfg();rebuildAll();chipsUI();
+  try{localStorage.removeItem(KEY)}catch(e){}SRCS=[];try{localStorage.removeItem(SKEY)}catch(e){}
+  recalc();defaultCfg(true,true);CUR=null;ensureCfg();saveCfg();rebuildAll();chipsUI();srcUI();apiSchedule();
 }
-const openModal=()=>{$('#modal').hidden=false;chipsUI();if(!$('#status').textContent)setStatus('ok',SOURCE==='exemplo'?'Usando dados de exemplo.':fmtInt(EMPS.length)+' colaboradores carregados de '+SOURCE+'.')};
+const openModal=()=>{$('#modal').hidden=false;chipsUI();srcUI();if(!$('#status').textContent)setStatus('ok',SOURCE==='exemplo'?'Usando dados de exemplo.':fmtInt(EMPS.length)+' colaboradores carregados de '+SOURCE+'.')};
 $('#btnImport').addEventListener('click',openModal);
 $('#sampleTag').addEventListener('click',openModal);
 $('#sampleTag').style.cursor='pointer';
@@ -1583,7 +1568,7 @@ function cfgFloors(){
     '<div class="frow"><span class="dn">'+esc(d.name)+'<small>'+fmtInt(d.active)+' pessoas</small></span><select data-dsel="'+esc(d.name)+'" aria-label="Andar de '+esc(d.name)+'">'+
     fl.map((f,k)=>'<option value="'+f.id+'"'+(CFG.deptFloor[d.name]===f.id?' selected':'')+'>'+(k+1)+' · '+esc(f.name)+'</option>').join('')+'</select></div>').join('')+'</div>';
   fl.forEach((f,i)=>{if(cnt[f.id]>8)h+='<p class="warnt">O andar '+(i+1)+' tem '+cnt[f.id]+' departamentos, mas só 8 aparecem em 3D.</p>'});
-  h+='<div style="margin-top:10px"><button class="btn sm" type="button" id="autoFloors">Distribuir automaticamente</button></div></div>';
+  h+='<div style="margin-top:10px"><button class="btn sm" type="button" id="autoFloors">Distribuir automaticamente</button>'+(HAS.cc?' <button class="btn sm" type="button" id="ccFloors">Andares pelo centro de custo</button>':'')+'</div></div>';
   h+='<p class="note">As salas de reunião e a recepção também ficam em andares. Escolha o andar de cada sala na aba Salas e marque Recepção no andar que terá o balcão.</p>';
   return h;
 }
@@ -1638,6 +1623,7 @@ cfgM.addEventListener('click',e=>{
   if(d.lookreset){CFG.looks={};afterCfgChange(true);return}
   if(b.id==='addFloor'){if(CFG.floors.length<8){CFG.floors.push({id:uid(),name:'Andar '+(CFG.floors.length+1),reception:false});afterCfgChange(true)}return}
   if(b.id==='autoFloors'){redistribute();afterCfgChange(true);return}
+  if(b.id==='ccFloors'){defaultCfg(false,true);CUR=null;afterCfgChange(true);return}
 });
 cfgM.addEventListener('change',e=>{
   const t=e.target,d=t.dataset;
@@ -1779,17 +1765,121 @@ $('#edbar').addEventListener('click',e=>{
   else if(b.id==='edResetAll'){L.p={};saveCfg();buildWorld();edBarUI()}
 });
 
-/* =================== CONEXÃO POR API =================== */
-const AKEY='dp3d.api.v1';let API=null,APIT=null;
-function apiLoad(){try{API=JSON.parse(localStorage.getItem(AKEY)||'null')}catch(e){API=null}}
-function apiSave(){try{if(API)localStorage.setItem(AKEY,JSON.stringify(API));else localStorage.removeItem(AKEY)}catch(e){}}
-function apiFill(){
-  $('#apiUrl').value=(API&&API.url)||'';$('#apiUrlR').value=(API&&API.urlR)||'';$('#apiHdr').value=(API&&API.hdr)||'';
-  $('#apiPath').value=(API&&API.path)||'';$('#apiEvery').value=String((API&&API.every)||0);$('#apiOff').hidden=!API;
+/* =================== FONTES DE DADOS (planilhas e APIs) =================== */
+const SKEY='dp3d.src.v1';let SRCS=[];
+const serE=e=>[e.nome,e.depto,e.cargo,isFinite(e.sal)?e.sal:null,iso(e.adm),iso(e.dem),e.faltas,e.he,e.sexo,e.cc||''];
+const deE=a=>({nome:a[0],depto:a[1],cargo:a[2],sal:a[3]==null?NaN:a[3],adm:toDate(a[4]),dem:toDate(a[5]),faltas:a[6],he:a[7],sexo:a[8],cc:a[9]||''});
+function saveSrcs(){try{localStorage.setItem(SKEY,JSON.stringify(SRCS.map(s=>Object.assign({},s,{emps:s.emps.map(serE)}))))}catch(e){}}
+function loadSrcs(){
+  try{const j=JSON.parse(localStorage.getItem(SKEY)||'null');SRCS=Array.isArray(j)?j.map(s=>Object.assign(s,{emps:(s.emps||[]).map(deE).filter(e=>e.adm)})):[]}catch(e){SRCS=[]}
+  if(!SRCS.length&&SOURCE!=='exemplo'&&EMPS.length)SRCS=[{id:'file:anterior',label:SOURCE,kind:'file',cfg:null,emps:EMPS.slice(),rooms:ROOMSRC!=='exemplo'?ROOMS.slice():[],map:MAPE||{},at:Date.now(),msgs:[],err:''}];
 }
+function parseTables(tables){
+  let bestE=null,bestR=null;
+  for(const t of tables){
+    const e=detect(t.rows,SYN),r=detect(t.rows,RSYN);
+    if(!('depto' in e.map)&&('cc' in e.map))e.map.depto=e.map.cc;
+    if('depto' in e.map&&'adm' in e.map&&(!bestE||e.score>bestE.h.score))bestE={t,h:e};
+    if('sala' in r.map&&('ini' in r.map||'cap' in r.map)&&(!bestR||r.score>bestR.h.score))bestR={t,h:r};
+  }
+  if(!bestE&&!bestR){
+    const seen=((tables[0]&&tables[0].rows[detect(tables[0].rows,SYN).row])||[]).filter(x=>String(x).trim()).slice(0,8).join(', ');
+    return {err:'Não encontrei colunas reconhecidas. Para colaboradores use Departamento e Admissão. Para salas use Sala e Capacidade ou Início. Cabeçalhos lidos: '+(seen||'nenhum')+'.'};
+  }
+  const msgs=[];let emps=[],rooms=[],map=null;
+  if(bestE){
+    const r=buildEmployees(bestE.t.rows,bestE.h);
+    if(!r.emps.length)return {err:'Achei as colunas, mas nenhuma linha tem data de admissão válida. Use dd/mm/aaaa ou AAAA-MM-DD.'};
+    emps=r.emps;map=bestE.h.map;msgs.push(fmtInt(emps.length)+' colaboradores'+(r.notes.length?' ('+r.notes.join('; ')+')':''));
+  }
+  if(bestR){const r=buildRooms(bestR.t.rows,bestR.h);rooms=r.rooms;msgs.push(rooms.length+' salas'+(r.notes.length?' ('+r.notes.join('; ')+')':''))}
+  return {emps,rooms,map,msgs};
+}
+function mergeEmps(){
+  const by=new Map(),out=[];
+  for(const s of SRCS)for(const e0 of s.emps){
+    const e=Object.assign({},e0),k=norm(e.nome||'')?norm(e.nome)+'|'+iso(e.adm):null;
+    if(k&&by.has(k)){
+      const b=by.get(k);
+      ['depto','cargo','cc','sexo'].forEach(f=>{if((!b[f]||b[f]==='Sem departamento')&&e[f])b[f]=e[f]});
+      if(!isFinite(b.sal)&&isFinite(e.sal))b.sal=e.sal;
+      if(!b.dem&&e.dem)b.dem=e.dem;
+      if(!b.faltas&&e.faltas)b.faltas=e.faltas;if(!b.he&&e.he)b.he=e.he;
+      continue;
+    }
+    if(k)by.set(k,e);out.push(e);
+  }
+  return out;
+}
+function mergeRooms(){
+  const by=new Map();
+  for(const s of SRCS)for(const r of (s.rooms||[])){
+    const k=norm(r.name);
+    if(!by.has(k))by.set(k,{name:r.name,cap:r.cap||0,meets:[]});
+    const b=by.get(k);b.cap=Math.max(b.cap,r.cap||0);
+    r.meets.forEach(m=>{if(!b.meets.some(x=>x.ini===m.ini&&x.fim===m.fim&&x.assunto===m.assunto))b.meets.push(m)});
+  }
+  const list=[...by.values()].slice(0,12);list.forEach(r=>{r.meets.sort((a,b)=>a.ini-b.ini);if(!r.cap)r.cap=6});
+  return list;
+}
+function applySources(){
+  const wasSample=SOURCE==='exemplo';
+  if(SRCS.some(s=>s.emps.length)){
+    EMPS=mergeEmps();MAPE=Object.assign({},...SRCS.map(s=>s.map||{}));
+    SOURCE=SRCS.filter(s=>s.emps.length).map(s=>s.label).join(' + ');NOTES=[];
+    HAS={sal:EMPS.some(e=>isFinite(e.sal)),faltas:'faltas' in MAPE,he:'he' in MAPE,sexo:EMPS.some(e=>e.sexo),cargo:EMPS.some(e=>e.cargo),nome:EMPS.some(e=>e.nome),dem:'dem' in MAPE||EMPS.some(e=>e.dem),cc:EMPS.some(e=>e.cc)};
+  }else{EMPS=makeSample();SOURCE='exemplo';MAPE=null;NOTES=[];HAS=SAMPLE_HAS}
+  const rs=mergeRooms();
+  if(rs.length){ROOMS=rs;ROOMSRC='fontes'}else{ROOMS=sampleRooms();ROOMSRC='exemplo'}
+  recalc();
+  if(wasSample&&SOURCE!=='exemplo'){defaultCfg(false,true);CUR=null}
+  ensureCfg();save();saveSrcs();saveCfg();rebuildAll();chipsUI();srcUI();apiSchedule();
+}
+function ingest(src,tables){
+  const r=parseTables(tables);
+  if(r.err){setStatus('err',r.err);return false}
+  const rec={id:src.id,label:src.label,kind:src.kind,cfg:src.cfg||null,emps:r.emps,rooms:r.rooms,map:r.map,at:Date.now(),msgs:r.msgs,err:''};
+  const i=SRCS.findIndex(s=>s.id===rec.id);if(i>=0)SRCS[i]=rec;else SRCS.push(rec);
+  applySources();
+  setStatus('ok',rec.label+': '+r.msgs.join(' e ')+'. Total: '+fmtInt(EMPS.length)+' colaboradores em '+SRCS.length+' fonte(s).');
+  return true;
+}
+function importTables(tables,label){return ingest({id:'file:'+label,label,kind:'file'},tables)}
+function ccCfg(looks){
+  const cnt=new Map();EMPS.forEach(e=>{if(e.cc&&isActive(e))cnt.set(e.cc,(cnt.get(e.cc)||0)+1)});
+  if(!cnt.size)return false;
+  const maxF=ROOMS.length?7:8;
+  const use=[...cnt].sort((a,b)=>b[1]-a[1]).slice(0,maxF).map(x=>x[0]).sort((a,b)=>a.localeCompare(b,'pt',{numeric:true}));
+  const floors=use.map((n,i)=>({id:'f'+(i+1),name:n.slice(0,28),reception:i===0})),id=new Map(use.map((n,i)=>[n,'f'+(i+1)]));
+  const per=new Map();
+  EMPS.forEach(e=>{if(!e.cc||!id.has(e.cc))return;const m=per.get(e.depto)||new Map();m.set(e.cc,(m.get(e.cc)||0)+1);per.set(e.depto,m)});
+  const deptFloor={};
+  [...new Set(EMPS.map(e=>e.depto))].forEach(n=>{const m=per.get(n);let best=null;if(m)for(const [c,k] of m)if(!best||k>best[1])best=[c,k];deptFloor[n]=best?id.get(best[0]):floors[floors.length-1].id});
+  const rooms={};
+  if(ROOMS.length){floors.push({id:'fs',name:'Salas de reunião',reception:false});ROOMS.forEach(r=>{rooms[r.name]={floor:'fs'}})}
+  CFG={floors,deptFloor,rooms,looks,layout:{}};return true;
+}
+function srcUI(){
+  const el=$('#srcList');if(!el)return;
+  if(!SRCS.length){el.innerHTML='<p class="note">Nenhuma fonte conectada, então os dados de exemplo estão em uso. Você pode somar quantas planilhas e APIs quiser: pessoas com o mesmo nome e a mesma admissão são unidas em um só cadastro.</p>';return}
+  el.innerHTML=SRCS.map(s=>{
+    const k=s.kind==='api'?(s.cfg&&s.cfg.preset==='convenia'?'Convenia':'API'):'Planilha',t=new Date(s.at);
+    return '<div class="srow"><div><b>'+esc(s.label)+'</b><small>'+k+' · '+fmtInt(s.emps.length)+' colaboradores · '+(s.rooms||[]).length+' salas · '+String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0')+'</small>'+(s.err?'<small class="er">'+esc(s.err)+'</small>':'')+'</div><div class="sp">'+
+      (s.kind==='api'?'<button class="btn sm" type="button" data-sact="refresh:'+esc(s.id)+'">Atualizar</button><button class="btn sm" type="button" data-sact="edit:'+esc(s.id)+'">Editar</button>':'')+
+      '<button class="btn sm" type="button" data-sact="del:'+esc(s.id)+'">Remover</button></div></div>';
+  }).join('');
+}
+
+/* =================== API =================== */
+const PRE={
+  custom:{name:'API própria',url:'',path:'data',hdr:'Authorization: Bearer seu-token'},
+  convenia:{name:'Convenia',url:'https://public-api.convenia.com.br/api/v3/employees?paginate=200',path:'data',hdr:'token: SEU_TOKEN_DA_CONVENIA'},
+  generic:{name:'Outro sistema',url:'',path:'',hdr:'Authorization: Bearer seu-token'}
+};
+let apiEditId=null;const TIM={};
 function apiSchedule(){
-  clearInterval(APIT);APIT=null;
-  if(API&&API.every>0)APIT=setInterval(()=>{if(document.visibilityState!=='hidden'&&!EDIT)apiRun()},API.every*60000);
+  Object.keys(TIM).forEach(k=>{clearInterval(TIM[k]);delete TIM[k]});
+  SRCS.forEach(s=>{const n=s.cfg&&s.cfg.every;if(s.kind==='api'&&n>0)TIM[s.id]=setInterval(()=>{if(document.visibilityState!=='hidden'&&!EDIT)refreshSrc(s.id)},n*60000)});
 }
 function parseHdrs(t){const o={};String(t||'').split(/\r?\n/).forEach(l=>{const i=l.indexOf(':');if(i>0){const k=l.slice(0,i).trim(),v=l.slice(i+1).trim();if(k&&v)o[k]=v}});return o}
 function dig(o,path){return String(path).split('.').filter(Boolean).reduce((a,k)=>a==null?a:a[k],o)}
@@ -1809,49 +1899,151 @@ function flat(o,pre,out){
   return out;
 }
 function toRows(arr){
-  const items=arr.filter(x=>x&&typeof x==='object').slice(0,5000).map(x=>flat(x,'',{}));
-  const head=[];items.slice(0,100).forEach(o=>{for(const k in o)if(!head.includes(k))head.push(k)});
+  const items=arr.filter(x=>x&&typeof x==='object').slice(0,8000).map(x=>{
+    const o=flat(x,'',{});
+    if(o.name&&o.last_name){o.name=o.name+' '+o.last_name;delete o.last_name}
+    else if(o.first_name&&o.last_name){o.name=o.first_name+' '+o.last_name;delete o.first_name;delete o.last_name}
+    return o;
+  });
+  const head=[];items.slice(0,200).forEach(o=>{for(const k in o)if(!head.includes(k))head.push(k)});
   return [head].concat(items.map(o=>head.map(k=>o[k]==null?'':o[k])));
 }
 async function apiFetchOne(url,hdr,path){
-  const r=await fetch(url,{headers:hdr,cache:'no-store'});
-  if(!r.ok)throw new Error('A API respondeu com erro '+r.status+'.');
-  const txt=await r.text();let j=null;
-  try{j=JSON.parse(txt)}catch(e){}
-  if(j===null)return parseText(txt);
-  const a=path?dig(j,path):findArr(j,0);
-  if(!Array.isArray(a)||!a.length)throw new Error('A resposta não tem uma lista de registros'+(path?' em "'+path+'"':'')+'. Informe o caminho dos dados, por exemplo data.items.');
-  return toRows(a);
+  let next=url,pages=0,all=[];
+  while(next&&pages<40){
+    const r=await fetch(next,{headers:hdr,cache:'no-store'});
+    if(!r.ok)throw new Error('A API respondeu com erro '+r.status+(r.status===401||r.status===403?' (confira o token e os cabeçalhos)':'')+'.');
+    const txt=await r.text();let j=null;
+    try{j=JSON.parse(txt)}catch(e){}
+    if(j===null){if(pages===0)return parseText(txt);break}
+    const a=path?dig(j,path):findArr(j,0);
+    if(!Array.isArray(a)||(!a.length&&pages===0))throw new Error('A resposta não tem uma lista de registros'+(path?' em "'+path+'"':'')+'. Informe o caminho dos dados, por exemplo data.items.');
+    all=all.concat(a);pages++;
+    next=(j&&typeof j.next_page_url==='string'&&/^https?:/i.test(j.next_page_url))?j.next_page_url.replace(/^http:/i,'https:'):null;
+  }
+  return toRows(all);
 }
-async function apiRun(cfg){
-  cfg=(cfg&&cfg.url)?cfg:API;if(!cfg)return;
-  const hdr=parseHdrs(cfg.hdr);
+async function apiRun(src){
+  const cfg=src.cfg,hdr=parseHdrs(cfg.hdr);
   try{
     const tables=[{name:'API',rows:await apiFetchOne(cfg.url,hdr,cfg.path)}];
     if(cfg.urlR)tables.push({name:'API salas',rows:await apiFetchOne(cfg.urlR,hdr,'')});
-    importTables(tables,'API');
-    if($('#status').className.indexOf('err')>=0)return;
-    API=cfg;apiSave();apiSchedule();apiFill();
+    if(!ingest(src,tables))return false;
     const n=new Date();$('#status').textContent+=' Atualizado às '+String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0')+'.';
+    return true;
   }catch(e){
     const net=e instanceof TypeError;
-    setStatus('err',net?'Não consegui acessar a API. Confira a URL (de preferência https) e se o servidor libera CORS para páginas no navegador (cabeçalho Access-Control-Allow-Origin).':(e.message||'Falha ao ler a API.'));
+    let msg=net?'Não consegui acessar a API. Confira a URL (https) e se o servidor libera CORS para páginas no navegador (Access-Control-Allow-Origin).'+(cfg.preset==='convenia'?' A Convenia pode não liberar acesso direto pelo navegador; nesse caso use um serviço intermediário no formato do texto de especificação.':''):(e.message||'Falha ao ler a API.');
+    setStatus('err',msg);
+    const r=SRCS.find(s=>s.id===src.id);if(r){r.err=msg;saveSrcs();srcUI()}
+    return false;
   }
 }
-$('#apiGo').addEventListener('click',()=>{
-  const url=$('#apiUrl').value.trim(),urlR=$('#apiUrlR').value.trim();
+function refreshSrc(id){const r=SRCS.find(s=>s.id===id);return r&&r.kind==='api'?apiRun({id:r.id,label:r.label,kind:'api',cfg:r.cfg}):null}
+async function bootRefresh(){for(const s of SRCS.filter(s=>s.kind==='api'))await refreshSrc(s.id)}
+function apiReset(){
+  apiEditId=null;$('#apiName').value='';$('#apiPreset').value='custom';$('#apiUrl').value='';$('#apiUrlR').value='';$('#apiHdr').value='';$('#apiPath').value='data';$('#apiEvery').value='0';
+  $('#apiHdr').placeholder='Cabeçalhos, um por linha\n'+PRE.custom.hdr;$('#apiTitle').textContent='Adicionar uma API';$('#apiGo').textContent='Adicionar e carregar';$('#apiCancel').hidden=true;
+}
+function apiPreset(){
+  const v=$('#apiPreset').value,p=PRE[v];
+  const fill=(id,k)=>{const el=$(id);if(!el.value.trim()||Object.values(PRE).some(q=>q[k]===el.value))el.value=p[k]};
+  fill('#apiUrl','url');fill('#apiPath','path');
+  if(!$('#apiName').value.trim()||Object.values(PRE).some(q=>q.name===$('#apiName').value))$('#apiName').value=p.name;
+  $('#apiHdr').placeholder='Cabeçalhos, um por linha\n'+p.hdr;
+}
+$('#apiPreset').addEventListener('change',apiPreset);
+$('#apiCancel').addEventListener('click',apiReset);
+$('#apiGo').addEventListener('click',async()=>{
+  const url=$('#apiUrl').value.trim(),urlR=$('#apiUrlR').value.trim(),preset=$('#apiPreset').value,hdr=$('#apiHdr').value;
   if(!/^https?:\/\//i.test(url)||(urlR&&!/^https?:\/\//i.test(urlR))){setStatus('err','Informe a URL completa da API, começando com https://.');return}
+  if(/SEU_TOKEN/i.test(hdr)){setStatus('err','Troque SEU_TOKEN pelo token real da API.');return}
+  const name=$('#apiName').value.trim()||PRE[preset].name,id=apiEditId||'api:'+uid();
   setStatus('ok','Consultando a API…');
-  apiRun({url,urlR,hdr:$('#apiHdr').value,path:$('#apiPath').value.trim(),every:+$('#apiEvery').value||0});
+  const ok=await apiRun({id,label:name,kind:'api',cfg:{preset,url,urlR,hdr,path:$('#apiPath').value.trim(),every:+$('#apiEvery').value||0}});
+  if(ok)apiReset();
 });
-$('#apiOff').addEventListener('click',()=>{API=null;apiSave();apiSchedule();apiFill();setStatus('ok','API desconectada. Os dados atuais continuam salvos neste navegador.')});
+$('#srcList').addEventListener('click',e=>{
+  const b=e.target.closest('[data-sact]');if(!b)return;
+  const i=b.dataset.sact.indexOf(':'),act=b.dataset.sact.slice(0,i),id=b.dataset.sact.slice(i+1),s=SRCS.find(x=>x.id===id);if(!s)return;
+  if(act==='refresh'){setStatus('ok','Consultando '+s.label+'…');refreshSrc(id)}
+  else if(act==='edit'){
+    const c=s.cfg||{};apiEditId=id;
+    $('#apiName').value=s.label;$('#apiPreset').value=c.preset||'custom';$('#apiUrl').value=c.url||'';$('#apiUrlR').value=c.urlR||'';$('#apiHdr').value=c.hdr||'';$('#apiPath').value=c.path||'';$('#apiEvery').value=String(c.every||0);
+    $('#apiTitle').textContent='Editar '+s.label;$('#apiGo').textContent='Salvar e carregar';$('#apiCancel').hidden=false;$('#apiBox').scrollIntoView({block:'nearest'});
+  }else if(act==='del'){
+    SRCS=SRCS.filter(x=>x.id!==id);
+    if(!SRCS.length){useSample();setStatus('ok','Fonte removida. Voltamos aos dados de exemplo.')}
+    else{applySources();setStatus('ok',s.label+' removida.')}
+  }
+});
 
+/* =================== TEXTO PARA CONFIGURAR A API DE ORIGEM =================== */
+const SPEC=[
+'ESPECIFICAÇÃO DA API DE DADOS DE RH PARA O PAINEL DP 3D',
+'',
+'Objetivo: criar uma API somente de leitura (HTTP GET, JSON) que entregue colaboradores, departamentos, centros de custo e salas de reunião. O painel consulta os endereços abaixo e monta o escritório em 3D.',
+'',
+'REGRAS GERAIS',
+'- HTTPS obrigatório. Respostas em JSON UTF-8.',
+'- Autenticação por cabeçalho fixo, por exemplo "Authorization: Bearer <token>" ou "token: <token>". O token deve ter permissão apenas de leitura.',
+'- CORS: a API é chamada direto pelo navegador, então precisa responder ao preflight (OPTIONS com status 204) e enviar "Access-Control-Allow-Origin" (o domínio do painel ou *) e "Access-Control-Allow-Headers" com o nome do cabeçalho de autenticação.',
+'- Datas no formato AAAA-MM-DD. Horas no formato HH:MM (24 h). Valores numéricos sem aspas, com ponto decimal.',
+'- Resposta pode ser { "data": [ ... ] } ou apenas [ ... ]. Se houver paginação, devolva "next_page_url" (URL completa da próxima página, ou null na última).',
+'',
+'ENDPOINT 1: GET /colaboradores',
+'Uma linha por pessoa: todos os ativos e os desligados dos últimos 12 meses.',
+'Campos:',
+'- nome (texto, obrigatório)',
+'- departamento (texto, obrigatório)',
+'- centro_de_custo (texto). Define o ANDAR no painel: cada centro de custo vira um andar e cada departamento fica no andar do seu centro de custo mais comum.',
+'- cargo (texto)',
+'- salario (número, salário base mensal em reais)',
+'- admissao (AAAA-MM-DD, obrigatório)',
+'- demissao (AAAA-MM-DD ou null quando ativo)',
+'- faltas_mes (número, faltas no mês atual)',
+'- horas_extras_mes (número, horas extras no mês atual)',
+'- sexo ("F" ou "M"; define o boneco feminino ou masculino)',
+'Exemplo:',
+JSON.stringify({data:[{nome:'Ana Souza',departamento:'Produção',centro_de_custo:'Andar 2',cargo:'Operadora',salario:2850,admissao:'2023-03-12',demissao:null,faltas_mes:1,horas_extras_mes:10,sexo:'F'}]},null,2),
+'',
+'ENDPOINT 2: GET /salas',
+'Cadastro das salas e reuniões marcadas. Uma linha por reunião. Sala sem reunião aparece em uma linha só com sala e capacidade (demais campos null). Inclua ao menos as reuniões do dia atual.',
+'Campos:',
+'- sala (texto, obrigatório, sempre o mesmo nome para a mesma sala)',
+'- capacidade (número de pessoas que a sala comporta; define o número de cadeiras sugerido)',
+'- data (AAAA-MM-DD da reunião)',
+'- inicio e fim (HH:MM; a sala fica ocupada de inicio até fim)',
+'- assunto (texto)',
+'- responsavel (nome de quem marcou ou conduz)',
+'- participantes (número de pessoas esperadas na reunião)',
+'Exemplo:',
+JSON.stringify({data:[{sala:'Sala Executiva',capacidade:10,data:'2026-10-28',inicio:'09:00',fim:'10:00',assunto:'Alinhamento semanal do DP',responsavel:'Marina',participantes:6},{sala:'Sala de Entrevistas',capacidade:4,data:null,inicio:null,fim:null,assunto:null,responsavel:null,participantes:null}]},null,2),
+'',
+'NOMES DE CAMPOS ACEITOS (português ou inglês)',
+'nome: nome, name, full_name | departamento: departamento, department, setor | centro de custo / andar: centro_de_custo, cost_center, andar, floor | cargo: cargo, job, role, position | salário: salario, salary | admissão: admissao, hiring_date, hire_date | demissão: demissao, dismissal_date | sexo: sexo, gender | sala: sala, room | capacidade: capacidade, capacity | início/fim: inicio/fim, start/end | responsável: responsavel, organizer | participantes: participantes, attendees.',
+'Objetos aninhados com "name" (ex.: department: { id, name }) também são entendidos. Se existir "name" e "last_name", o painel junta os dois.',
+'',
+'SE A ORIGEM FOR UM SISTEMA COMO A CONVENIA',
+'Crie um serviço intermediário (pequena função/servidor) que consulta o sistema de origem com o token dele no servidor, converte para o formato acima e expõe /colaboradores e /salas com CORS liberado. Assim o token do sistema de origem nunca fica exposto no navegador. Na Convenia: GET https://public-api.convenia.com.br/api/v3/employees?paginate=200 com o cabeçalho "token"; campos úteis: name, last_name, department.name, cost_center.name, job.name, hiring_date, salary.',
+'',
+'TESTE',
+'curl -H "Authorization: Bearer <token>" https://SEU-DOMINIO/colaboradores',
+'curl -H "Authorization: Bearer <token>" https://SEU-DOMINIO/salas'
+].join('\n');
+$('#specTxt').value=SPEC;
+$('#specCopy').addEventListener('click',async()=>{
+  const b=$('#specCopy');let ok=false;
+  try{await navigator.clipboard.writeText(SPEC);ok=true}catch(e){}
+  if(!ok){try{const t=$('#specTxt');t.focus();t.select();ok=document.execCommand('copy')}catch(e){}}
+  b.textContent=ok?'Copiado!':'Selecione o texto e copie (Ctrl+C)';setTimeout(()=>{b.textContent='Copiar texto'},2200);
+});
 
 /* =================== INÍCIO =================== */
 function fail(msg){const m=$('#msg3d');m.hidden=false;m.textContent=msg}
 function boot(){
   if(!load()){EMPS=makeSample();ROOMS=sampleRooms();SOURCE='exemplo';ROOMSRC='exemplo';HAS=SAMPLE_HAS}
-  loadCfg();initClock();recalc();ensureCfg();clockUI();railUI();apiLoad();
+  loadCfg();initClock();recalc();ensureCfg();clockUI();railUI();loadSrcs();
   if(typeof THREE==='undefined'){fail('Não foi possível carregar o 3D. Os painéis continuam disponíveis pelo menu.');greet();return}
   try{
     renderer=new THREE.WebGLRenderer({canvas:cv,antialias:true});
@@ -1863,8 +2055,8 @@ function boot(){
   new ResizeObserver(resize).observe(stageEl);resize();
   Object.assign(cam,overviewCam());cam.sx=0;cam.sy=0;
   buildWorld();greet();chipsUI();
-  requestAnimationFrame(frame);apiFill();apiSchedule();if(API)apiRun();
-  window.__dp={focusOn,cam,PERS,fadeSwitch,setEdit,addExtra,EG,apiRun,scr:(x,z)=>{const v=new THREE.Vector3(x,0,z).project(camera),r=cv.getBoundingClientRect();return {x:r.left+(v.x+1)/2*r.width,y:r.top+(1-v.y)/2*r.height}},get CFG(){return CFG},get CUR(){return CUR},get fail(){return !OK}};
+  requestAnimationFrame(frame);srcUI();apiSchedule();bootRefresh();
+  window.__dp={focusOn,cam,PERS,fadeSwitch,setEdit,addExtra,EG,apiRun,ingest,get SRCS(){return SRCS},scr:(x,z)=>{const v=new THREE.Vector3(x,0,z).project(camera),r=cv.getBoundingClientRect();return {x:r.left+(v.x+1)/2*r.width,y:r.top+(1-v.y)/2*r.height}},get CFG(){return CFG},get CUR(){return CUR},get fail(){return !OK}};
 }
 const fontP=(document.fonts&&document.fonts.load)?Promise.race([document.fonts.load('800 40px "Plus Jakarta Sans"'),new Promise(r=>setTimeout(r,1500))]):Promise.resolve();
 fontP.catch(()=>{}).then(boot);
