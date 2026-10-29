@@ -238,7 +238,8 @@ code.tpl{display:block;font:11.5px/1.5 ui-monospace,Menlo,Consolas,monospace;bac
         <button class="btn sm" data-add="impressora" type="button">Impressora</button>
         <button class="btn sm" data-add="bebedouro" type="button">Bebedouro</button>
         <button class="btn sm" data-add="quadro" type="button">Quadro</button>
-        <button class="btn sm" data-add="estante" type="button">Estante</button></div>
+        <button class="btn sm" data-add="estante" type="button">Estante</button>
+        <button class="btn sm orange" id="edNewRoom" type="button">Nova sala</button></div>
     </div>
     <div class="hello" id="hello"></div>
     <aside class="panel" id="panel" aria-live="polite">
@@ -291,6 +292,7 @@ code.tpl{display:block;font:11.5px/1.5 ui-monospace,Menlo,Consolas,monospace;bac
           <input id="apiUrl" type="url" placeholder="https://sua-api.com/colaboradores" autocomplete="off" aria-label="URL da API de colaboradores">
           <input id="apiUrlR" type="url" placeholder="URL das salas (opcional)" autocomplete="off" aria-label="URL da API de salas">
           <textarea id="apiHdr" placeholder="Cabeçalhos, um por linha&#10;Authorization: Bearer seu-token" aria-label="Cabeçalhos da API"></textarea>
+          <label class="chk" id="apiDeepRow" hidden style="font-size:12.5px"><input type="checkbox" id="apiDeep" checked> Buscar também sexo e desligados (Convenia): consulta cada pessoa, leva alguns minutos na primeira vez e depois só os novos</label>
           <div class="two"><input id="apiPath" type="text" value="data" placeholder="Caminho dos dados (ex.: data.items)" autocomplete="off" aria-label="Caminho dos dados no JSON">
           <select id="apiEvery" aria-label="Atualização automática"><option value="0">Atualizar só manualmente</option><option value="1">A cada 1 min</option><option value="5">A cada 5 min</option><option value="15">A cada 15 min</option><option value="60">A cada 1 hora</option></select></div>
           <div class="sp"><button class="btn sm orange" id="apiGo" type="button">Adicionar e carregar</button><button class="btn sm" id="apiCancel" type="button" hidden>Cancelar edição</button></div>
@@ -354,7 +356,7 @@ const ACC='#FF6A1A';
 
 /* =================== DADOS =================== */
 let EMPS=[],ROOMS=[],HAS={},SOURCE='exemplo',ROOMSRC='exemplo',NOTES=[],MAPE=null;
-let CFG={floors:[],deptFloor:{},rooms:{},looks:{},layout:{}},CUR=null;
+let CFG={floors:[],deptFloor:{},rooms:{},looks:{},layout:{},custom:[]},CUR=null;
 const isActive=e=>e.adm<=today&&(!e.dem||e.dem>today);
 
 function rng(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
@@ -497,10 +499,10 @@ function buildRooms(rows,h){
   let day=null;const ds=all.filter(x=>x.dt).map(x=>+x.dt);
   if(ds.length){day=ds.includes(+today)?+today:Math.max(...ds)}
   for(const x of all){if(!x.dt||+x.dt===day)x.room.meets.push(x.mt)}
-  const list=[...by.values()].slice(0,12);
+  const list=[...by.values()].slice(0,24);
   list.forEach(r=>{r.meets.sort((a,b)=>a.ini-b.ini);if(!r.cap)r.cap=6});
   const notes=[];
-  if(by.size>12)notes.push('só as 12 primeiras salas foram usadas');
+  if(by.size>24)notes.push('só as 24 primeiras salas foram usadas');
   if(day&&day!==+today)notes.push('nenhuma reunião marcada para hoje; mostrando a agenda de '+fmtDate(new Date(day)));
   return {rooms:list,notes};
 }
@@ -531,11 +533,11 @@ function saveCfg(){try{localStorage.setItem(CKEY,JSON.stringify(CFG))}catch(e){}
 function loadCfg(){
   try{
     const j=JSON.parse(localStorage.getItem(CKEY)||'null');
-    if(j&&Array.isArray(j.floors)&&j.floors.length){CFG={floors:j.floors.slice(0,8),deptFloor:j.deptFloor||{},rooms:j.rooms||{},looks:j.looks||{},layout:j.layout||{}};return true}
+    if(j&&Array.isArray(j.floors)&&j.floors.length){CFG={floors:j.floors.slice(0,8),deptFloor:j.deptFloor||{},rooms:j.rooms||{},looks:j.looks||{},layout:j.layout||{},custom:j.custom||[]};return true}
   }catch(e){}
   return false;
 }
-function defaultCfg(sample,keepLooks){
+function defaultCfg0(sample,keepLooks){
   const looks=keepLooks?(CFG.looks||{}):{};
   if(sample){
     CFG={floors:[{id:'f1',name:'Recepção',reception:true},{id:'f2',name:'Operação',reception:false},{id:'f3',name:'Negócios e suporte',reception:false},{id:'f4',name:'Salas de reunião',reception:false}],
@@ -550,7 +552,11 @@ function defaultCfg(sample,keepLooks){
     CFG={floors,deptFloor,rooms,looks,layout:{}};
   }
 }
-function roomsFloor(){const f=CFG.floors.find(x=>/sala/i.test(x.name));return (f||CFG.floors[CFG.floors.length-1]).id}
+function roomsFloor(){
+  const f=CFG.floors.find(x=>/sala/i.test(x.name));if(f)return f.id;
+  const cnt={};CFG.floors.forEach(x=>{cnt[x.id]=0});DEPT.forEach(d=>{const id=CFG.deptFloor[d.name];if(cnt[id]!=null)cnt[id]++});
+  let best=CFG.floors[0];CFG.floors.forEach(x=>{if(cnt[x.id]<cnt[best.id])best=x});return best.id;
+}
 function autoFloorFor(){
   const cnt={};CFG.floors.forEach(f=>{cnt[f.id]=0});
   DEPT.forEach(d=>{const id=CFG.deptFloor[d.name];if(cnt[id]!=null)cnt[id]++});
@@ -565,6 +571,9 @@ function startFloor(){
 }
 function ensureCfg(){
   if(!CFG.floors||!CFG.floors.length)defaultCfg(SOURCE==='exemplo');
+  CFG.custom=CFG.custom||[];syncCustom();
+  CFG.floors.forEach((f,i)=>{if(f.num==null||f.num==='')f.num=i+1});
+  CFG.floors.sort((a,b)=>a.num-b.num);
   const ids=new Set(CFG.floors.map(f=>f.id));
   DEPT.forEach(d=>{if(!ids.has(CFG.deptFloor[d.name]))CFG.deptFloor[d.name]=autoFloorFor()});
   ROOMS.forEach(r=>{
@@ -703,14 +712,39 @@ function autoLook(h,sx){
   return {gender:g,skin:SKIN[h%5],hair:HAIR[(h>>>3)%7],shirt:SHIRT[(h>>>6)%8],hs:st[(h>>>9)%4],headset:(h>>>12)%3===0,glasses:(h>>>14)%4===0,beard:g==='M'&&(h>>>16)%3===0};
 }
 function personKey(e){return (norm(e.nome||'')||('i'+e._i))+'|'+norm(e.depto||'')}
-function lookOf(e){
+function lookOf0(e){
   const h=hash((e.nome||'')+'|'+e._i),sx=String(e.sexo||'').trim().toUpperCase().charAt(0),base=autoLook(h,(sx==='F'||sx==='M')?sx:null),o=CFG.looks[personKey(e)];
   if(!o)return base;
   const g=(o.g==='F'||o.g==='M')?o.g:base.gender,L=g===base.gender?base:autoLook(h,g),st=g==='F'?FSTY:MSTY;
   return {gender:g,skin:o.skin||L.skin,hair:o.hair||L.hair,shirt:o.shirt||L.shirt,hs:(o.hs!=null&&st.includes(o.hs))?o.hs:L.hs,
     headset:o.headset!=null?o.headset:L.headset,glasses:o.glasses!=null?o.glasses:L.glasses,beard:g==='M'?(o.beard!=null?o.beard:L.beard):false};
 }
-function makePerson(o){
+const LEADN={0:'',1:'Coordenação',2:'Gerência',3:'Diretoria'};
+function autoLead(e){
+  const c=String(e.cargo||'');if(!c||/^\s*(assistente|auxiliar|estagi|secret|assessor|aprendiz|analista)/i.test(c))return 0;
+  if(/\bdiretor|\bpresidente|\bceo\b|\bcfo\b|\bcoo\b|\bcto\b|\bcio\b|\bvp\b|s[óo]cio|superintendente|\bchief\b/i.test(c))return 3;
+  if(/gerente|gestor|\bhead\b|manager|chefe/i.test(c))return 2;
+  if(/coordenador|supervisor|l[íi]der|encarregad|team lead|\blead\b/i.test(c))return 1;
+  return 0;
+}
+function leadLv(e){const o=CFG.looks[personKey(e)];if(o&&o.lead!=null&&o.lead!=='')return o.lead==='none'?0:(+o.lead||0);return autoLead(e)}
+function lookOf(e){return Object.assign(lookOf0(e),{lead:leadLv(e)})}
+function leadBadge(lv,pick){
+  const g=new THREE.Group();g.position.set(0,1.3,0);
+  if(lv===3){
+    const gold=mat('#F5B301',{roughness:.35,metalness:.3,emissive:'#7A5200',emissiveIntensity:.4});
+    g.add(mesh(G.cyl(.4,.36,.24,20),gold,0,0,0,{c:1}));
+    for(let k=0;k<5;k++){const a=k/5*Math.PI*2;g.add(mesh(G.cone(.12,.4),gold,Math.sin(a)*.32,.3,Math.cos(a)*.32,{c:1}));g.add(mesh(G.sph(.06,8,6),mat('#FF6A1A',{emissive:'#FF6A1A',emissiveIntensity:.4}),Math.sin(a)*.32,.52,Math.cos(a)*.32))}
+  }else if(lv===2){
+    const m=mat('#3A6BF4',{roughness:.3,metalness:.2,emissive:'#1D3FA8',emissiveIntensity:.5});
+    const d=mesh(gk('oct',()=>new THREE.OctahedronGeometry(.36,0)),m,0,.3,0,{c:1,sy:1.35});d.rotation.y=.6;g.add(d);
+  }else{
+    const m=mat('#12A072',{roughness:.5,emissive:'#0B6B4B',emissiveIntensity:.45});
+    g.add(mesh(G.cyl(.035,.035,.8,8),mat('#6B7280'),0,.3,0,{c:1}));
+    g.add(mesh(G.box(.46,.3,.04),m,.24,.5,0,{c:1}));
+  }
+  g.traverse(o=>{if(o.isMesh)pick.push(o)});return g;
+}function makePerson(o){
   const F=o.gender==='F',g=new THREE.Group(),pick=[];
   const skin=mat(o.skin,{roughness:.8}),shirt=mat(o.shirt,{roughness:.85}),pants=mat(F?'#2F3548':'#2D3445'),hair=mat(o.hair,{roughness:.9}),dark=mat('#1B1F2A',{roughness:.5});
   const t1=F?.38:.46,t2=F?.46:.54,shx=F?.88:1.1,sox=F?.46:.56;
@@ -752,6 +786,7 @@ function makePerson(o){
     limb(g,hip,knee,.17,pants);limb(g,knee,foot,.15,pants);
     g.add(mesh(G.box(.3,.14,.46),dark,s*.24,.08,1.02));
   }
+  if(o.lead>0)head.add(leadBadge(o.lead,pick));
   return {g,head,pick};
 }
 function makeChair(color){
@@ -762,8 +797,7 @@ function makeChair(color){
   g.add(mesh(G.box(.95,1.0,.12),m,0,1.35,-.52,{c:1}));
   return g;
 }
-function makeDesk(){
-  const g=new THREE.Group(),w=mat('#F6F7F9',{roughness:.55}),metal=mat('#C9CFDA',{roughness:.5});
+function makeDesk(){  const g=new THREE.Group(),w=mat('#F6F7F9',{roughness:.55}),metal=mat('#C9CFDA',{roughness:.5});
   g.add(mesh(G.box(1.7,.1,1.1),w,0,1.25,0,{c:1,r:1}));
   for(const s of[-1,1])g.add(mesh(G.box(.08,1.2,.95),metal,s*.76,.6,0,{c:1}));
   // laptop (tampa de costas para a câmera)
@@ -876,21 +910,23 @@ const floorObj=id=>CFG.floors.find(f=>f.id===id);
 const floorIdx=id=>CFG.floors.findIndex(f=>f.id===id);
 const floorDepts=id=>DEPT.filter(d=>CFG.deptFloor[d.name]===id);
 function floorRooms(id){const out=[];ROOMS.forEach((r,i)=>{if((CFG.rooms[r.name]||{}).floor===id)out.push(i)});return out}
-const floorLabel=id=>{const i=floorIdx(id);return i<0?'':'Andar '+(i+1)+' · '+floorObj(id).name};
+const fnum=id=>{const f=floorObj(id);return f?((f.num!=null&&f.num!=='')?f.num:floorIdx(id)+1):0};
+const fname=f=>/^\s*(andar\s*)?-?\d+\s*[ºo°]?\s*(andar)?\s*$/i.test(f.name||'')?'':(f.name||'');
+const floorLabel=id=>{const f=floorObj(id);return f?'Andar '+fnum(id)+(fname(f)?' · '+fname(f):''):''};
 function updateFloorSign(){
   if(!floorSign)return;
   const fl=floorObj(CUR);if(!fl)return;
-  const c=document.createElement('canvas');c.width=1024;c.height=256;const g=c.getContext('2d'),num=String(floorIdx(CUR)+1);
+  const c=document.createElement('canvas');c.width=1024;c.height=256;const g=c.getContext('2d'),num=String(fnum(CUR));
   g.textBaseline='middle';g.textAlign='left';
   g.fillStyle='#12151C';g.font='800 190px '+FONT;g.fillText(num,30,138);
   const nx=g.measureText(num).width+70;
   g.fillStyle='#4B5565';g.font='700 40px '+FONT;g.fillText('ANDAR',nx,84);
-  g.fillStyle='#12151C';g.font='800 64px '+FONT;g.fillText(fl.name,nx,158,1024-nx-20);
+  g.fillStyle='#12151C';g.font='800 64px '+FONT;g.fillText(fname(fl),nx,158,1024-nx-20);
   if(floorSign.material.map)floorSign.material.map.dispose();
   floorSign.material.map=new THREE.CanvasTexture(c);floorSign.material.needsUpdate=true;
 }
 function pickPeople(ord,max){
-  const n=Math.min(max,ord.length),cust=ord.filter(e=>CFG.looks[personKey(e)]).slice(0,n),rest=ord.filter(e=>!cust.includes(e)),need=n-cust.length,out=cust.slice();
+  const n=Math.min(max,ord.length),cust=ord.filter(e=>CFG.looks[personKey(e)]||leadLv(e)>0).sort((a,b)=>leadLv(b)-leadLv(a)).slice(0,n),rest=ord.filter(e=>!cust.includes(e)),need=n-cust.length,out=cust.slice();
   for(let j=0;j<need;j++)out.push(rest[Math.min(rest.length-1,Math.floor((j+.5)*rest.length/need))]);
   return out.sort((a,b)=>a.adm-b.adm);
 }
@@ -899,7 +935,7 @@ function addPerson(parent,e,lx,lz,wx,wz,withDesk,dT){
   const pg=new THREE.Group();pg.position.set(lx,0,lz);pg.add(pr.g);
   pg.add(makeChair(DCOL[(h>>>5)%8].dot));
   if(withDesk){const dk=makeDesk();dk.position.set(0,0,1.15);pg.add(dk);dk.traverse(o=>{if(o.isMesh){o.userData.t=dT;DPICK.push(o)}})}
-  const tag=pill((e.nome||'Pessoa').split(' ')[0],null,faltaCol(e.faltas||0),2.0);tag.position.set(0,3.85,0);pg.add(tag);TAGS.push(tag);
+  const tag=pill((e.nome||'Pessoa').split(' ')[0],look.lead?LEADN[look.lead]:null,faltaCol(e.faltas||0),2.0);tag.position.set(0,look.lead?4.75:3.85,0);pg.add(tag);TAGS.push(tag);
   parent.add(pg);
   const pT={kind:'person',id:e._i,tipT:e.nome||'Colaborador',tipS:(e.cargo||e.depto)+' · clique para ver os dados',foot:{type:'ring',x:wx,z:wz+.3,r:1.25}};
   regMeshes(pr.pick,pT,DPICK);
@@ -934,12 +970,12 @@ function buildWorld(){
       addPerson(g,e,lx,lz,sx+lx,sz+lz,true,dT);
     });
   });
-  const rids=floorRooms(CUR).slice(0,3);
+  const rids=floorRooms(CUR).slice(0,6);
   const anyMoved=Object.keys(LAY(CUR).p).some(k=>k[0]==='r');
   rids.forEach((ri,k)=>{
-    const b=RSPEC[k],key='r:'+ROOMS[ri].name,po=LAY(CUR).p[key],bcx=(b.x0+b.x1)/2,bcz=(b.z0+b.z1)/2,dx=po?po.x-bcx:0,dz=po?po.z-bcz:0;
+    const b=rspecFor(k),key='r:'+ROOMS[ri].name,po=LAY(CUR).p[key],bcx=(b.x0+b.x1)/2,bcz=(b.z0+b.z1)/2,dx=po?po.x-bcx:0,dz=po?po.z-bcz:0;
     buildRoom(ri,k,{x0:b.x0+dx,x1:b.x1+dx,z0:b.z0+dz,z1:b.z1+dz},ROOMS[ri]);
-    const R=RM[ri];regEdit(key,{kind:'room',label:ROOMS[ri].name,g:R.group,x:bcx+dx,z:bcz+dz,ox:0,oz:0,hw:5.7,hd:4,def:{x:bcx,z:bcz}});
+    const R=RM[ri];regEdit(key,{kind:'room',custom:!!ROOMS[ri].custom,label:ROOMS[ri].name,g:R.group,x:bcx+dx,z:bcz+dz,ox:0,oz:0,hw:5.7,hd:4,def:{x:bcx,z:bcz}});
   });
   if(!anyMoved)for(let k=rids.length;k<3;k++)emptySlot(RSPEC[k]);
   if(fl.reception)buildReception();
@@ -1288,6 +1324,11 @@ function pScreen(){
   }
   return {title:'Telão do DP',sub:'Os mesmos números aparecem na tela da parede',html:h,back:null};
 }
+function leadSec(d){
+  const ld=d.act.filter(e=>leadLv(e)>0).sort((a,b)=>leadLv(b)-leadLv(a)||String(a.nome).localeCompare(String(b.nome),'pt-BR'));
+  if(!ld.length)return '';
+  return '<div class="sec"><h3>Lideranças ('+ld.length+')</h3><div class="rows">'+ld.map(e=>'<button type="button" class="row" data-person="'+e._i+'"><span class="av" style="background:'+avc(e.nome)+'">'+esc(ini(e.nome))+'</span><span style="min-width:0"><span class="t" style="display:block">'+esc(e.nome||'Sem nome')+'</span><span class="s" style="display:block">'+esc(e.cargo||'—')+'</span></span><span class="tg" style="background:#FFF3C4;color:#7A5200">'+LEADN[leadLv(e)]+'</span></button>').join('')+'</div><p class="note" style="margin-top:6px">No 3D: coroa é diretoria, losango é gerência e bandeira é coordenação.</p></div>';
+}
 function pDept(name){
   const d=DMAP.get(name);
   if(!d)return {title:name,sub:'',html:'<p class="note">Departamento sem colaboradores ativos.</p>',back:null};
@@ -1299,7 +1340,7 @@ function pDept(name){
     '<div class="k"><small>Turnover ao ano</small><b>'+fmtPct(d.turnYear)+'</b></div>'+
     '<div class="k"><small>Absenteísmo</small><b>'+(HAS.faltas?fmtPct(d.abs):'—')+'</b></div></div>'+
     '<div class="sec"><h3>Headcount nos últimos '+WIN+' meses</h3>'+colsHtml({kind:'series',labels:d.mo.map(o=>MES[o.m]),values:d.mo.map(o=>o.hc)})+'</div>'+
-    '<div class="sec"><h3>Pessoas ('+d.act.length+')</h3><div class="rows">'+d.act.slice().sort((a,b)=>(b.faltas||0)-(a.faltas||0)||String(a.nome).localeCompare(String(b.nome),'pt-BR')).slice(0,80).map(e=>
+    leadSec(d)+'<div class="sec"><h3>Pessoas ('+d.act.length+')</h3><div class="rows">'+d.act.slice().sort((a,b)=>(b.faltas||0)-(a.faltas||0)||String(a.nome).localeCompare(String(b.nome),'pt-BR')).slice(0,80).map(e=>
       '<button type="button" class="row" data-person="'+e._i+'"><span class="av" style="background:'+avc(e.nome)+'">'+esc(ini(e.nome))+'</span><span style="min-width:0"><span class="t" style="display:block">'+esc(e.nome||'Sem nome')+'</span><span class="s" style="display:block">'+esc(e.cargo||'—')+'</span></span>'+(HAS.faltas?faltaTag(e.faltas||0):'')+'</button>').join('')+'</div>'+(d.act.length>80?'<p class="note" style="margin-top:6px">Mostrando 80 de '+d.act.length+'. Use a busca no topo para achar alguém.</p>':'')+'</div>';
   return {title:name,sub:floorLabel(CFG.deptFloor[name])+' · em 3D aparecem '+Math.min(6,d.act.length)+' de '+d.act.length+' pessoas',html:h,back:{kind:'depts'}};
 }
@@ -1315,7 +1356,7 @@ function pPerson(id){
   }
   const active=isActive(e);
   const h='<div style="display:flex;gap:12px;align-items:center"><span class="av lg" style="background:'+avc(e.nome)+'">'+esc(ini(e.nome))+'</span><div><div style="font-weight:800;font-size:16px">'+esc(e.cargo||'Cargo não informado')+'</div><div class="note">'+esc(e.depto)+'</div></div></div>'+
-    '<div class="sp">'+(active?'<span class="tg ok">Ativo</span>':'<span class="tg mut">Desligado em '+fmtDate(e.dem)+'</span>')+(HAS.faltas?faltaTag(e.faltas||0):'')+((HAS.he&&(e.he||0)>=12)?'<span class="tg warn">'+e.he+' h extras</span>':'')+'</div>'+
+    '<div class="sp">'+(active?'<span class="tg ok">Ativo</span>':'<span class="tg mut">Desligado em '+fmtDate(e.dem)+'</span>')+(HAS.faltas?faltaTag(e.faltas||0):'')+((HAS.he&&(e.he||0)>=12)?'<span class="tg warn">'+e.he+' h extras</span>':'')+(leadLv(e)?'<span class="tg" style="background:#FFF3C4;color:#7A5200">'+LEADN[leadLv(e)]+'</span>':'')+'</div>'+
     '<div class="kgrid">'+
     '<div class="k"><small>Admissão</small><b>'+fmtDate(e.adm)+'</b></div>'+
     '<div class="k"><small>Tempo de casa</small><b>'+esc(tenureFrom(e))+'</b></div>'+
@@ -1441,7 +1482,7 @@ function greet(){
   const h=new Date().getHours(),sd=h<12?'Bom dia':h<18?'Boa tarde':'Boa noite';
   const busy=ROOMS.filter(r=>roomStatus(r,CLOCK.min).busy).length;
   const fl=floorObj(CUR);
-  $('#hello').innerHTML='<h1>'+sd+', DP</h1><p><span class="live"></span>'+(fl?'Andar '+(floorIdx(CUR)+1)+' · '+esc(fl.name):'')+'</p><p>'+fmtInt(S.active)+' colaboradores ativos · '+busy+' de '+ROOMS.length+' salas ocupadas às '+hhmm(CLOCK.min)+'</p><p style="margin-top:6px">Clique no telão, em uma sala, mesa, pessoa ou no arquivo da folha. Arraste para girar.</p>';
+  $('#hello').innerHTML='<h1>'+sd+', DP</h1><p><span class="live"></span>'+(fl?esc(floorLabel(CUR)):'')+'</p><p>'+fmtInt(S.active)+' colaboradores ativos · '+busy+' de '+ROOMS.length+' salas ocupadas às '+hhmm(CLOCK.min)+'</p><p style="margin-top:6px">Clique no telão, em uma sala, mesa, pessoa ou no arquivo da folha. Arraste para girar.</p>';
   $('#sampleTag').hidden=!(SOURCE==='exemplo');
 }
 
@@ -1491,8 +1532,8 @@ $('#btnSample').addEventListener('click',()=>{useSample();setStatus('ok','Voltam
 /* =================== ANDARES: BOTÕES, TROCA E CONFIGURAÇÃO =================== */
 function railUI(){
   $('#rail').innerHTML='<span class="rl">Andar</span>'+CFG.floors.slice().reverse().map(f=>{
-    const n=floorIdx(f.id)+1;
-    return '<button type="button" data-floor="'+f.id+'" aria-current="'+(f.id===CUR)+'" title="Andar '+n+' · '+esc(f.name)+'" aria-label="Andar '+n+', '+esc(f.name)+'">'+n+'</button>';
+    const n=fnum(f.id),lb=floorLabel(f.id);
+    return '<button type="button" data-floor="'+f.id+'" aria-current="'+(f.id===CUR)+'" title="'+esc(lb)+'" aria-label="'+esc(lb)+'"'+(String(n).length>2?' style="font-size:12px"':'')+'>'+n+'</button>';
   }).join('');
 }
 function fadeSwitch(id,cb){
@@ -1520,6 +1561,7 @@ function setLook(id,k,v){
     const o=Object.assign({},CFG.looks[key]);
     if(k==='g'){if(v==='')delete o.g;else o.g=v;delete o.hs;if(v==='F')delete o.beard}
     else if(k==='hs')o.hs=+v;
+    else if(k==='lead'){if(v==='')delete o.lead;else o.lead=v}
     else if(k==='headset'||k==='glasses'||k==='beard')o[k]=(v==='true');
     else o[k]=v;
     if(Object.keys(o).length)CFG.looks[key]=o;else delete CFG.looks[key];
@@ -1534,6 +1576,7 @@ function lookUI(e){
   const tg=(k,t,on)=>'<button type="button" data-look="'+k+'" data-v="'+(!on)+'" aria-pressed="'+on+'">'+t+'</button>';
   return '<div class="sec"><h3>Visual do boneco</h3>'+
     '<div class="seg" role="group" aria-label="Modelo do boneco">'+[['','Pela planilha'],['F','Feminino'],['M','Masculino']].map(a=>'<button type="button" data-look="g" data-v="'+a[0]+'" aria-pressed="'+((o.g||'')===a[0])+'">'+a[1]+'</button>').join('')+'</div>'+
+    '<p class="lbl2">Liderança (símbolo acima da cabeça)</p><div class="seg" role="group" aria-label="Liderança">'+[['','Automático'],['none','Nenhuma'],['1','Coordenação'],['2','Gerência'],['3','Diretoria']].map(a=>'<button type="button" data-look="lead" data-v="'+a[0]+'" aria-pressed="'+(String(o.lead==null?'':o.lead)===a[0])+'">'+a[1]+'</button>').join('')+'</div>'+
     '<p class="lbl2">Pele</p>'+sw('skin',SKIN,L.skin)+
     '<p class="lbl2">Cabelo</p>'+sw('hair',HAIR,L.hair)+
     '<div class="seg" style="margin-top:8px" role="group" aria-label="Penteado">'+st.map(s=>'<button type="button" data-look="hs" data-v="'+s+'" aria-pressed="'+(L.hs===s)+'">'+STYNAME[s]+'</button>').join('')+'</div>'+
@@ -1553,42 +1596,25 @@ function previewSvg(model,N){
   else s+='<rect x="'+(((t.x||0)-t.w/2)*sc)+'" y="'+(((t.z||0)-t.d/2)*sc)+'" width="'+(t.w*sc)+'" height="'+(t.d*sc)+'" rx="6" fill="#fff" stroke="#CBD3DF"/>';
   L.seats.forEach(c=>{s+='<circle cx="'+(c.x*sc)+'" cy="'+(c.z*sc)+'" r="6" fill="#FF6A1A"/>'});
   return s+'</svg>';
-}
-function cfgFloors(){
+}function cfgFloors(){
   const fl=CFG.floors,cnt={};
   fl.forEach(f=>{cnt[f.id]=0});DEPT.forEach(d=>{const id=CFG.deptFloor[d.name];if(cnt[id]!=null)cnt[id]++});
   let h='<div class="sec"><h3>Andares ('+fl.length+' de 8)</h3><div class="cf">'+fl.map((f,i)=>
-    '<div class="frow"><span class="fnum">'+(i+1)+'</span><input class="fin" type="text" maxlength="28" value="'+esc(f.name)+'" data-fname="'+f.id+'" aria-label="Nome do andar '+(i+1)+'">'+
+    '<div class="frow"><input class="fin" type="number" min="-5" max="200" value="'+fnum(f.id)+'" data-fnum="'+f.id+'" aria-label="Número do andar" title="Número real do andar" style="width:72px;flex:none"><input class="fin" type="text" maxlength="28" value="'+esc(f.name)+'" data-fname="'+f.id+'" aria-label="Nome do andar '+(i+1)+'">'+
     '<label class="chk"><input type="checkbox" data-frec="'+f.id+'"'+(f.reception?' checked':'')+'> Recepção</label>'+
-    '<button type="button" class="ib" data-fmv="'+f.id+':-1" aria-label="Subir na lista"'+(i===0?' disabled':'')+'>↑</button>'+
-    '<button type="button" class="ib" data-fmv="'+f.id+':1" aria-label="Descer na lista"'+(i===fl.length-1?' disabled':'')+'>↓</button>'+
     '<button type="button" class="ib" data-fdel="'+f.id+'" aria-label="Remover andar"'+(fl.length<=1?' disabled':'')+'>×</button></div>').join('')+'</div>'+
     '<div style="margin-top:10px"><button class="btn sm" type="button" id="addFloor"'+(fl.length>=8?' disabled':'')+'>Adicionar andar</button></div></div>';
   h+='<div class="sec"><h3>Departamentos por andar</h3><div class="cf">'+DEPT.map(d=>
     '<div class="frow"><span class="dn">'+esc(d.name)+'<small>'+fmtInt(d.active)+' pessoas</small></span><select data-dsel="'+esc(d.name)+'" aria-label="Andar de '+esc(d.name)+'">'+
-    fl.map((f,k)=>'<option value="'+f.id+'"'+(CFG.deptFloor[d.name]===f.id?' selected':'')+'>'+(k+1)+' · '+esc(f.name)+'</option>').join('')+'</select></div>').join('')+'</div>';
-  fl.forEach((f,i)=>{if(cnt[f.id]>8)h+='<p class="warnt">O andar '+(i+1)+' tem '+cnt[f.id]+' departamentos, mas só 8 aparecem em 3D.</p>'});
+    fl.map((f,k)=>'<option value="'+f.id+'"'+(CFG.deptFloor[d.name]===f.id?' selected':'')+'>'+esc(floorLabel(f.id))+'</option>').join('')+'</select></div>').join('')+'</div>';
+  fl.forEach((f,i)=>{if(cnt[f.id]>8)h+='<p class="warnt">O andar '+fnum(f.id)+' tem '+cnt[f.id]+' departamentos, mas só 8 aparecem em 3D.</p>'});
   h+='<div style="margin-top:10px"><button class="btn sm" type="button" id="autoFloors">Distribuir automaticamente</button>'+(HAS.cc?' <button class="btn sm" type="button" id="ccFloors">Andares pelo centro de custo</button>':'')+'</div></div>';
   h+='<p class="note">As salas de reunião e a recepção também ficam em andares. Escolha o andar de cada sala na aba Salas e marque Recepção no andar que terá o balcão.</p>';
   return h;
 }
-function cfgRooms(){
-  if(!ROOMS.length)return '<p class="note">Nenhuma sala cadastrada ainda. Importe uma planilha com a aba Salas (colunas Sala e Início).</p>';
-  const models=[['round','Redonda'],['long','Retangular'],['theater','Auditório']],per={};
-  ROOMS.forEach(r=>{const f=roomCfg(r).floor;per[f]=(per[f]||0)+1});
-  return '<p class="note">Escolha o andar, o modelo e a quantidade de cadeiras. A prévia mostra como a sala fica em 3D, e cada ponto laranja é uma cadeira. Cada andar mostra até 3 salas.</p><div class="cf">'+ROOMS.map((r,i)=>{
-    const c=roomCfg(r);
-    return '<div class="rcard"><div class="rtop"><b>'+esc(r.name)+'</b><span class="note">Capacidade na planilha: '+fmtInt(r.cap||0)+'</span></div>'+
-      '<div class="rgrid"><div class="rsel"><div class="lbl">Andar</div><select data-rfloor="'+i+'" aria-label="Andar da sala '+esc(r.name)+'">'+CFG.floors.map((f,k)=>'<option value="'+f.id+'"'+(c.floor===f.id?' selected':'')+'>'+(k+1)+' · '+esc(f.name)+'</option>').join('')+'</select></div>'+
-      '<div class="rsel"><div class="lbl">Modelo</div><select data-rmodel="'+i+'" aria-label="Modelo da sala '+esc(r.name)+'">'+models.map(m=>'<option value="'+m[0]+'"'+(c.model===m[0]?' selected':'')+'>'+m[1]+'</option>').join('')+'</select></div>'+
-      '<div class="rsel"><div class="lbl">Cadeiras</div><div class="stepper"><button type="button" class="ib" data-rseat="'+i+':-1" aria-label="Menos uma cadeira">−</button><b>'+c.seats+'</b><button type="button" class="ib" data-rseat="'+i+':1" aria-label="Mais uma cadeira">+</button></div></div></div>'+
-      '<div class="prev">'+previewSvg(c.model||'round',c.seats||6)+'</div>'+
-      (per[c.floor]>3?'<p class="warnt">Este andar tem '+per[c.floor]+' salas, mas só 3 aparecem em 3D.</p>':'')+'</div>';
-  }).join('')+'</div>';
-}
 function cfgPeople(){
   const n=Object.keys(CFG.looks).length;
-  return '<div class="sec"><h3>Como os bonecos são montados</h3><p class="note">Cada pessoa usa o modelo da coluna Sexo da planilha: F aparece com o boneco feminino e M com o masculino. Sem a coluna, o modelo é sorteado.</p></div>'+
+  return '<div class="sec"><h3>Como os bonecos são montados</h3><p class="note">Cada pessoa usa o modelo da coluna Sexo da planilha: F aparece com o boneco feminino e M com o masculino. Sem a coluna, o modelo é sorteado. Quem tem cargo de diretoria, gerência ou coordenação ganha um símbolo acima da cabeça (coroa, losango ou bandeira); no painel da pessoa dá para trocar ou tirar.</p></div>'+
     '<div class="sec"><h3>Mudar o visual de alguém</h3><p class="note">Clique no boneco, ou procure o nome na busca do topo, e use a seção Visual do boneco no painel: modelo, pele, cabelo, penteado, roupa e acessórios. Quem tem visual personalizado sempre aparece na mesa 3D do departamento.</p></div>'+
     '<div class="sec"><h3>Visuais salvos</h3><p style="font-weight:700;margin-bottom:8px">'+n+(n===1?' pessoa personalizada':' pessoas personalizadas')+'</p><button type="button" class="btn sm" data-lookreset="1"'+(n?'':' disabled')+'>Restaurar todos ao padrão</button></div>';
 }
@@ -1621,7 +1647,7 @@ cfgM.addEventListener('click',e=>{
   if(d.fdel){if(CFG.floors.length>1){CFG.floors=CFG.floors.filter(f=>f.id!==d.fdel);afterCfgChange(true)}return}
   if(d.rseat){const p=d.rseat.split(':'),r=ROOMS[+p[0]];if(r){const c=roomCfg(r);c.seats=clamp((c.seats||6)+(+p[1]),2,12);afterCfgChange(true)}return}
   if(d.lookreset){CFG.looks={};afterCfgChange(true);return}
-  if(b.id==='addFloor'){if(CFG.floors.length<8){CFG.floors.push({id:uid(),name:'Andar '+(CFG.floors.length+1),reception:false});afterCfgChange(true)}return}
+  if(b.id==='addFloor'){if(CFG.floors.length<8){CFG.floors.push((()=>{const nx=Math.max(0,...CFG.floors.map(f=>+f.num||0))+1;return {id:uid(),name:'Andar '+nx,num:nx,reception:false}})());afterCfgChange(true)}return}
   if(b.id==='autoFloors'){redistribute();afterCfgChange(true);return}
   if(b.id==='ccFloors'){defaultCfg(false,true);CUR=null;afterCfgChange(true);return}
 });
@@ -1726,7 +1752,7 @@ function edSelect(k){SEL=(k&&EG.has(k))?k:null;edSelRect();edBarUI()}
 function edBarUI(){
   const en=SEL&&EG.get(SEL),ex=en&&en.kind==='extra';
   $('#edSel').textContent=en?en.label+' selecionado':'Arraste salas, mesas e itens. Clique para selecionar.';
-  $('#edRot').disabled=!ex;$('#edDel').disabled=!ex;
+  $('#edRot').disabled=!ex;$('#edDel').disabled=!(ex||(en&&en.custom));
   $('#edReset').disabled=!en||ex||!LAY(CUR).p[en.key];
 }
 function edRefresh(){
@@ -1759,6 +1785,7 @@ $('#edbar').addEventListener('click',e=>{
   const L=LAY(CUR),en=SEL&&EG.get(SEL);
   if(b.dataset.add)addExtra(b.dataset.add);
   else if(b.id==='edDone')setEdit(false);
+  else if(b.id==='edDel'&&en&&en.kind==='room'&&en.custom){if(confirm('Excluir esta sala?'))delEditRoom(en.key)}
   else if(b.id==='edRot'&&en&&en.kind==='extra'){const x=L.x.find(q=>q.id===en.id);if(x){x.r=((x.r||0)+1)%4;saveCfg();const k=en.key;buildWorld();edSelect(k)}}
   else if(b.id==='edDel'&&en&&en.kind==='extra'){L.x=L.x.filter(q=>q.id!==en.id);saveCfg();SEL=null;buildWorld();edBarUI()}
   else if(b.id==='edReset'&&en&&en.kind!=='extra'){delete L.p[en.key];saveCfg();const k=en.key;buildWorld();edSelect(k)}
@@ -1819,7 +1846,7 @@ function mergeRooms(){
     const b=by.get(k);b.cap=Math.max(b.cap,r.cap||0);
     r.meets.forEach(m=>{if(!b.meets.some(x=>x.ini===m.ini&&x.fim===m.fim&&x.assunto===m.assunto))b.meets.push(m)});
   }
-  const list=[...by.values()].slice(0,12);list.forEach(r=>{r.meets.sort((a,b)=>a.ini-b.ini);if(!r.cap)r.cap=6});
+  const list=[...by.values()].slice(0,24);list.forEach(r=>{r.meets.sort((a,b)=>a.ini-b.ini);if(!r.cap)r.cap=6});
   return list;
 }
 function applySources(){
@@ -1835,28 +1862,33 @@ function applySources(){
   if(wasSample&&SOURCE!=='exemplo'){defaultCfg(false,true);CUR=null}
   ensureCfg();save();saveSrcs();saveCfg();rebuildAll();chipsUI();srcUI();apiSchedule();
 }
-function ingest(src,tables){
+function ingest(src,tables,extra){
   const r=parseTables(tables);
   if(r.err){setStatus('err',r.err);return false}
-  const rec={id:src.id,label:src.label,kind:src.kind,cfg:src.cfg||null,emps:r.emps,rooms:r.rooms,map:r.map,at:Date.now(),msgs:r.msgs,err:''};
+  const rec={id:src.id,label:src.label,kind:src.kind,cfg:src.cfg||null,emps:r.emps,rooms:r.rooms,map:r.map,at:Date.now(),msgs:r.msgs,err:'',prog:(extra&&extra.prog)||''};
   const i=SRCS.findIndex(s=>s.id===rec.id);if(i>=0)SRCS[i]=rec;else SRCS.push(rec);
   applySources();
-  setStatus('ok',rec.label+': '+r.msgs.join(' e ')+'. Total: '+fmtInt(EMPS.length)+' colaboradores em '+SRCS.length+' fonte(s).');
+  setStatus('ok',rec.label+': '+r.msgs.join(' e ')+'. Total: '+fmtInt(EMPS.length)+' colaboradores em '+SRCS.length+' fonte(s).'+(rec.prog?' · '+rec.prog:''));
   return true;
 }
 function importTables(tables,label){return ingest({id:'file:'+label,label,kind:'file'},tables)}
+function ccNum(s){
+  const m=String(s).match(/(?:andar|piso|floor)\s*(-?\d{1,3})|(-?\d{1,3})\s*[ºo°]?\s*(?:andar|piso|floor)|^\s*(-?\d{1,3})\s*[ºo°]?\s*$/i);
+  return m?+(m[1]??m[2]??m[3]):null;
+}
 function ccCfg(looks){
   const cnt=new Map();EMPS.forEach(e=>{if(e.cc&&isActive(e))cnt.set(e.cc,(cnt.get(e.cc)||0)+1)});
   if(!cnt.size)return false;
-  const maxF=ROOMS.length?7:8;
-  const use=[...cnt].sort((a,b)=>b[1]-a[1]).slice(0,maxF).map(x=>x[0]).sort((a,b)=>a.localeCompare(b,'pt',{numeric:true}));
-  const floors=use.map((n,i)=>({id:'f'+(i+1),name:n.slice(0,28),reception:i===0})),id=new Map(use.map((n,i)=>[n,'f'+(i+1)]));
-  const per=new Map();
+  const use=[...cnt].sort((a,b)=>b[1]-a[1]).slice(0,8).map(x=>x[0]),taken=new Set(),nums=use.map(n=>{const v=ccNum(n);if(v!=null&&!taken.has(v)){taken.add(v);return v}return null});
+  let nx=1;nums.forEach((v,i)=>{if(v==null){while(taken.has(nx))nx++;nums[i]=nx;taken.add(nx)}});
+  let floors=use.map((n,i)=>({id:'f'+(i+1),name:ccNum(n)!=null&&/^\s*-?\d+\s*$/.test(n)?'Andar '+nums[i]:n.slice(0,28),num:nums[i],reception:false}));
+  floors.sort((a,b)=>a.num-b.num);floors[0].reception=true;
+  const id=new Map(use.map((n,i)=>[n,'f'+(i+1)])),per=new Map();
   EMPS.forEach(e=>{if(!e.cc||!id.has(e.cc))return;const m=per.get(e.depto)||new Map();m.set(e.cc,(m.get(e.cc)||0)+1);per.set(e.depto,m)});
-  const deptFloor={};
-  [...new Set(EMPS.map(e=>e.depto))].forEach(n=>{const m=per.get(n);let best=null;if(m)for(const [c,k] of m)if(!best||k>best[1])best=[c,k];deptFloor[n]=best?id.get(best[0]):floors[floors.length-1].id});
+  const deptFloor={},cntF={};floors.forEach(f=>{cntF[f.id]=0});
+  [...new Set(EMPS.map(e=>e.depto))].forEach(n=>{const m=per.get(n);let best=null;if(m)for(const [c,k] of m)if(!best||k>best[1])best=[c,k];deptFloor[n]=best?id.get(best[0]):floors[floors.length-1].id;cntF[deptFloor[n]]++});
   const rooms={};
-  if(ROOMS.length){floors.push({id:'fs',name:'Salas de reunião',reception:false});ROOMS.forEach(r=>{rooms[r.name]={floor:'fs'}})}
+  if(ROOMS.length){let rf=floors[0];floors.forEach(f=>{if(cntF[f.id]<cntF[rf.id])rf=f});ROOMS.forEach(r=>{rooms[r.name]={floor:rf.id}})}
   CFG={floors,deptFloor,rooms,looks,layout:{}};return true;
 }
 function srcUI(){
@@ -1864,7 +1896,7 @@ function srcUI(){
   if(!SRCS.length){el.innerHTML='<p class="note">Nenhuma fonte conectada, então os dados de exemplo estão em uso. Você pode somar quantas planilhas e APIs quiser: pessoas com o mesmo nome e a mesma admissão são unidas em um só cadastro.</p>';return}
   el.innerHTML=SRCS.map(s=>{
     const k=s.kind==='api'?(s.cfg&&s.cfg.preset==='convenia'?'Convenia':'API'):'Planilha',t=new Date(s.at);
-    return '<div class="srow"><div><b>'+esc(s.label)+'</b><small>'+k+' · '+fmtInt(s.emps.length)+' colaboradores · '+(s.rooms||[]).length+' salas · '+String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0')+'</small>'+(s.err?'<small class="er">'+esc(s.err)+'</small>':'')+'</div><div class="sp">'+
+    return '<div class="srow"><div><b>'+esc(s.label)+'</b><small>'+k+' · '+fmtInt(s.emps.length)+' colaboradores · '+(s.rooms||[]).length+' salas · '+String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0')+'</small>'+(s.prog?'<small>'+esc(s.prog)+'</small>':'')+(s.err?'<small class="er">'+esc(s.err)+'</small>':'')+'</div><div class="sp">'+
       (s.kind==='api'?'<button class="btn sm" type="button" data-sact="refresh:'+esc(s.id)+'">Atualizar</button><button class="btn sm" type="button" data-sact="edit:'+esc(s.id)+'">Editar</button>':'')+
       '<button class="btn sm" type="button" data-sact="del:'+esc(s.id)+'">Remover</button></div></div>';
   }).join('');
@@ -1873,7 +1905,7 @@ function srcUI(){
 /* =================== API =================== */
 const PRE={
   custom:{name:'API própria',url:'',path:'data',hdr:'Authorization: Bearer seu-token'},
-  convenia:{name:'Convenia',url:'https://public-api.convenia.com.br/api/v3/employees?paginate=200',path:'data',hdr:'token: SEU_TOKEN_DA_CONVENIA'},
+  convenia:{name:'Convenia',url:'https://public-api.convenia.com.br/api/v3/employees?paginate=200',path:'data',hdr:'token: SEU_TOKEN_DA_CONVENIA',deep:true},
   generic:{name:'Outro sistema',url:'',path:'',hdr:'Authorization: Bearer seu-token'}
 };
 let apiEditId=null;const TIM={};
@@ -1908,24 +1940,26 @@ function toRows(arr){
   const head=[];items.slice(0,200).forEach(o=>{for(const k in o)if(!head.includes(k))head.push(k)});
   return [head].concat(items.map(o=>head.map(k=>o[k]==null?'':o[k])));
 }
-async function apiFetchOne(url,hdr,path){
+async function apiFetchRaw(url,hdr,path){
   let next=url,pages=0,all=[];
-  while(next&&pages<40){
+  while(next&&pages<60){
     const r=await fetch(next,{headers:hdr,cache:'no-store'});
     if(!r.ok)throw new Error('A API respondeu com erro '+r.status+(r.status===401||r.status===403?' (confira o token e os cabeçalhos)':'')+'.');
     const txt=await r.text();let j=null;
     try{j=JSON.parse(txt)}catch(e){}
-    if(j===null){if(pages===0)return parseText(txt);break}
+    if(j===null){if(pages===0)return {csv:parseText(txt)};break}
     const a=path?dig(j,path):findArr(j,0);
     if(!Array.isArray(a)||(!a.length&&pages===0))throw new Error('A resposta não tem uma lista de registros'+(path?' em "'+path+'"':'')+'. Informe o caminho dos dados, por exemplo data.items.');
     all=all.concat(a);pages++;
     next=(j&&typeof j.next_page_url==='string'&&/^https?:/i.test(j.next_page_url))?j.next_page_url.replace(/^http:/i,'https:'):null;
   }
-  return toRows(all);
+  return all;
 }
+async function apiFetchOne(url,hdr,path){const r=await apiFetchRaw(url,hdr,path);return r.csv?r.csv:toRows(r)}
 async function apiRun(src){
   const cfg=src.cfg,hdr=parseHdrs(cfg.hdr);
   try{
+    if(cfg.preset==='convenia'&&cfg.deep)return await convStart(src);
     const tables=[{name:'API',rows:await apiFetchOne(cfg.url,hdr,cfg.path)}];
     if(cfg.urlR)tables.push({name:'API salas',rows:await apiFetchOne(cfg.urlR,hdr,'')});
     if(!ingest(src,tables))return false;
@@ -1943,14 +1977,14 @@ function refreshSrc(id){const r=SRCS.find(s=>s.id===id);return r&&r.kind==='api'
 async function bootRefresh(){for(const s of SRCS.filter(s=>s.kind==='api'))await refreshSrc(s.id)}
 function apiReset(){
   apiEditId=null;$('#apiName').value='';$('#apiPreset').value='custom';$('#apiUrl').value='';$('#apiUrlR').value='';$('#apiHdr').value='';$('#apiPath').value='data';$('#apiEvery').value='0';
-  $('#apiHdr').placeholder='Cabeçalhos, um por linha\n'+PRE.custom.hdr;$('#apiTitle').textContent='Adicionar uma API';$('#apiGo').textContent='Adicionar e carregar';$('#apiCancel').hidden=true;
+  $('#apiHdr').placeholder='Cabeçalhos, um por linha\n'+PRE.custom.hdr;$('#apiTitle').textContent='Adicionar uma API';$('#apiDeepRow').hidden=true;$('#apiDeep').checked=true;$('#apiGo').textContent='Adicionar e carregar';$('#apiCancel').hidden=true;
 }
 function apiPreset(){
   const v=$('#apiPreset').value,p=PRE[v];
   const fill=(id,k)=>{const el=$(id);if(!el.value.trim()||Object.values(PRE).some(q=>q[k]===el.value))el.value=p[k]};
   fill('#apiUrl','url');fill('#apiPath','path');
   if(!$('#apiName').value.trim()||Object.values(PRE).some(q=>q.name===$('#apiName').value))$('#apiName').value=p.name;
-  $('#apiHdr').placeholder='Cabeçalhos, um por linha\n'+p.hdr;
+  $('#apiHdr').placeholder='Cabeçalhos, um por linha\n'+p.hdr;$('#apiDeepRow').hidden=v!=='convenia';
 }
 $('#apiPreset').addEventListener('change',apiPreset);
 $('#apiCancel').addEventListener('click',apiReset);
@@ -1960,7 +1994,7 @@ $('#apiGo').addEventListener('click',async()=>{
   if(/SEU_TOKEN/i.test(hdr)){setStatus('err','Troque SEU_TOKEN pelo token real da API.');return}
   const name=$('#apiName').value.trim()||PRE[preset].name,id=apiEditId||'api:'+uid();
   setStatus('ok','Consultando a API…');
-  const ok=await apiRun({id,label:name,kind:'api',cfg:{preset,url,urlR,hdr,path:$('#apiPath').value.trim(),every:+$('#apiEvery').value||0}});
+  const ok=await apiRun({id,label:name,kind:'api',cfg:{preset,url,urlR,hdr,path:$('#apiPath').value.trim(),every:+$('#apiEvery').value||0,deep:preset==='convenia'&&$('#apiDeep').checked}});
   if(ok)apiReset();
 });
 $('#srcList').addEventListener('click',e=>{
@@ -1970,7 +2004,7 @@ $('#srcList').addEventListener('click',e=>{
   else if(act==='edit'){
     const c=s.cfg||{};apiEditId=id;
     $('#apiName').value=s.label;$('#apiPreset').value=c.preset||'custom';$('#apiUrl').value=c.url||'';$('#apiUrlR').value=c.urlR||'';$('#apiHdr').value=c.hdr||'';$('#apiPath').value=c.path||'';$('#apiEvery').value=String(c.every||0);
-    $('#apiTitle').textContent='Editar '+s.label;$('#apiGo').textContent='Salvar e carregar';$('#apiCancel').hidden=false;$('#apiBox').scrollIntoView({block:'nearest'});
+    $('#apiDeepRow').hidden=(c.preset!=='convenia');$('#apiDeep').checked=c.deep!==false;$('#apiTitle').textContent='Editar '+s.label;$('#apiGo').textContent='Salvar e carregar';$('#apiCancel').hidden=false;$('#apiBox').scrollIntoView({block:'nearest'});
   }else if(act==='del'){
     SRCS=SRCS.filter(x=>x.id!==id);
     if(!SRCS.length){useSample();setStatus('ok','Fonte removida. Voltamos aos dados de exemplo.')}
@@ -1996,7 +2030,8 @@ const SPEC=[
 'Campos:',
 '- nome (texto, obrigatório)',
 '- departamento (texto, obrigatório)',
-'- centro_de_custo (texto). Define o ANDAR no painel: cada centro de custo vira um andar e cada departamento fica no andar do seu centro de custo mais comum.',
+'- andar (número do andar real do prédio, por exemplo 1, 3, 4, 7, 12, 15). O painel usa exatamente esse número no botão lateral, sem renumerar. Cada departamento fica no andar da maioria das suas pessoas.',
+'- centro_de_custo (texto). Alternativa ao campo andar: se vier com número ("Andar 12", "12º andar") o número é usado; senão o painel numera em ordem alfabética.',
 '- cargo (texto)',
 '- salario (número, salário base mensal em reais)',
 '- admissao (AAAA-MM-DD, obrigatório)',
@@ -2025,7 +2060,7 @@ JSON.stringify({data:[{sala:'Sala Executiva',capacidade:10,data:'2026-10-28',ini
 'Objetos aninhados com "name" (ex.: department: { id, name }) também são entendidos. Se existir "name" e "last_name", o painel junta os dois.',
 '',
 'SE A ORIGEM FOR UM SISTEMA COMO A CONVENIA',
-'Crie um serviço intermediário (pequena função/servidor) que consulta o sistema de origem com o token dele no servidor, converte para o formato acima e expõe /colaboradores e /salas com CORS liberado. Assim o token do sistema de origem nunca fica exposto no navegador. Na Convenia: GET https://public-api.convenia.com.br/api/v3/employees?paginate=200 com o cabeçalho "token"; campos úteis: name, last_name, department.name, cost_center.name, job.name, hiring_date, salary.',
+'Crie um serviço intermediário (pequena função/servidor) que consulta o sistema de origem com o token dele no servidor, converte para o formato acima e expõe /colaboradores e /salas com CORS liberado. Assim o token do sistema de origem nunca fica exposto no navegador. Na Convenia: GET https://public-api.convenia.com.br/api/v3/employees?paginate=200 com o cabeçalho "token"; campos úteis: name, last_name, department.name, cost_center.name, job.name, hiring_date, salary. O sexo (gender: M/F) e a data de desligamento (dismissal.date) só vêm no detalhe GET /employees/{id}; desligados em GET /employees/dismissed?from_date=AAAA-MM-DD. O painel já faz isso sozinho quando a opção da Convenia está ligada (limite de 50 consultas por minuto).',
 '',
 'TESTE',
 'curl -H "Authorization: Bearer <token>" https://SEU-DOMINIO/colaboradores',
@@ -2038,6 +2073,165 @@ $('#specCopy').addEventListener('click',async()=>{
   if(!ok){try{const t=$('#specTxt');t.focus();t.select();ok=document.execCommand('copy')}catch(e){}}
   b.textContent=ok?'Copiado!':'Selecione o texto e copie (Ctrl+C)';setTimeout(()=>{b.textContent='Copiar texto'},2200);
 });
+
+/* =================== ANDARES NUMERADOS, SALAS MANUAIS E CONVENIA COMPLETA =================== */
+const rspecFor=k=>k<3?RSPEC[k]:{x0:-5.6+(k-3)*.6,x1:5.8+(k-3)*.6,z0:-4+(k-3)*.6,z1:4+(k-3)*.6};
+function defaultCfg(sample,keepLooks){
+  const cu=keepLooks?(CFG.custom||[]):[],pr=CFG.rooms||{};
+  defaultCfg0(sample,keepLooks);
+  CFG.custom=cu;cu.forEach(c=>{if(pr[c.name])CFG.rooms[c.name]=pr[c.name]});
+}
+function uniqueRoomName(base){
+  const names=new Set(ROOMS.map(r=>r.name));if(!names.has(base))return base;
+  let n=2;while(names.has(base+' '+n))n++;return base+' '+n;
+}
+function syncCustom(){
+  ROOMS=ROOMS.filter(r=>!r.custom);
+  (CFG.custom||[]).forEach(c=>{
+    const ex=ROOMS.find(r=>r.name===c.name);
+    if(ex){(c.meets||[]).forEach(m=>{if(!ex.meets.some(x=>x.ini===m.ini&&x.fim===m.fim))ex.meets.push(m)});return}
+    ROOMS.push({name:c.name,cap:c.cap||6,meets:(c.meets||[]).slice().sort((a,b)=>a.ini-b.ini),custom:true,cid:c.id});
+  });
+}
+function addCustomRoom(floorId,pos){
+  if(floorRooms(floorId).length>=6)return null;
+  CFG.custom=CFG.custom||[];
+  const name=uniqueRoomName('Sala '+(ROOMS.length+1)),c={id:uid(),name,cap:6,meets:[]};
+  CFG.custom.push(c);CFG.rooms[name]={floor:floorId,model:'round',seats:6};
+  if(pos)LAY(floorId).p['r:'+name]=pos;
+  syncCustom();saveCfg();return c;
+}
+function removeCustomRoom(cid){
+  const c=(CFG.custom||[]).find(x=>x.id===cid);if(!c)return;
+  CFG.custom=CFG.custom.filter(x=>x.id!==cid);delete CFG.rooms[c.name];
+  Object.values(CFG.layout||{}).forEach(L=>{if(L.p)delete L.p['r:'+c.name]});
+  syncCustom();saveCfg();
+}
+function renameCustom(c,nn){
+  nn=(nn||'').trim().slice(0,30);if(!nn||nn===c.name)return;
+  if(ROOMS.some(r=>r.name===nn&&r.cid!==c.id))nn=uniqueRoomName(nn);
+  const old=c.name;CFG.rooms[nn]=CFG.rooms[old];delete CFG.rooms[old];
+  Object.values(CFG.layout||{}).forEach(L=>{if(L.p&&L.p['r:'+old]){L.p['r:'+nn]=L.p['r:'+old];delete L.p['r:'+old]}});
+  c.name=nn;syncCustom();
+}
+function cfgRooms(){
+  const models=[['round','Redonda'],['long','Retangular'],['theater','Auditório']],per={};
+  ROOMS.forEach(r=>{const f=roomCfg(r).floor;per[f]=(per[f]||0)+1});
+  let h='<div class="sec"><h3>Criar sala manualmente</h3><div class="frow"><select id="newRoomFloor" aria-label="Andar da nova sala">'+CFG.floors.map(f=>'<option value="'+f.id+'"'+(f.id===CUR?' selected':'')+'>'+esc(floorLabel(f.id))+'</option>').join('')+'</select><button class="btn sm orange" type="button" id="addRoom">Adicionar sala</button></div><p class="note">Salas criadas aqui convivem com as que vêm da API ou da planilha. Depois de criar, use Editar layout para arrastar a sala até o lugar certo. Cada andar mostra até 6 salas.</p></div>';
+  if(!ROOMS.length)return h+'<p class="note">Nenhuma sala cadastrada ainda.</p>';
+  h+='<p class="note">Escolha o andar, o modelo e a quantidade de cadeiras. A prévia mostra como a sala fica em 3D, e cada ponto laranja é uma cadeira.</p><div class="cf">'+ROOMS.map((r,i)=>{
+    const c=roomCfg(r),cu=r.custom?(CFG.custom||[]).find(x=>x.id===r.cid):null;
+    let top='<div class="rtop"><b>'+esc(r.name)+'</b><span class="note">Capacidade: '+fmtInt(r.cap||0)+(r.custom?' · criada manualmente':'')+'</span></div>';
+    if(cu)top='<div class="rtop"><input class="fin" type="text" maxlength="30" value="'+esc(cu.name)+'" data-cname="'+cu.id+'" aria-label="Nome da sala"><input class="fin" type="number" min="1" max="200" value="'+(cu.cap||6)+'" data-ccap="'+cu.id+'" aria-label="Capacidade da sala" style="width:80px;flex:none"><button type="button" class="btn sm" data-cdel="'+cu.id+'">Excluir sala</button></div>';
+    let ag='';
+    if(cu){
+      ag='<div class="sec" style="margin-top:8px"><h3>Agenda manual de hoje</h3>'+((cu.meets||[]).length?'<div class="rows">'+cu.meets.map((m,k)=>'<div class="row" style="cursor:default"><span class="tg warn">'+hhmm(m.ini)+'–'+hhmm(m.fim)+'</span><span style="min-width:0"><span class="t">'+esc(m.assunto||'Reunião')+'</span><span class="s">'+esc(m.resp||'')+(m.n?' · '+m.n+' pessoas':'')+'</span></span><button type="button" class="ib" data-cmdel="'+cu.id+':'+k+'" aria-label="Remover reunião">×</button></div>').join('')+'</div>':'<p class="note">Sem reuniões. A sala aparece livre o dia todo.</p>')+
+        '<div class="frow cmform" data-cid="'+cu.id+'" style="flex-wrap:wrap"><input type="time" data-cm="ini" value="09:00" aria-label="Início"><input type="time" data-cm="fim" value="10:00" aria-label="Fim"><input class="fin" type="text" data-cm="assunto" placeholder="Assunto" aria-label="Assunto"><input class="fin" type="text" data-cm="resp" placeholder="Responsável" aria-label="Responsável"><input type="number" data-cm="n" min="0" max="200" placeholder="Pessoas" style="width:84px" aria-label="Quantas pessoas"><button type="button" class="btn sm" data-cmadd="'+cu.id+'">Adicionar reunião</button></div></div>';
+    }
+    return '<div class="rcard">'+top+
+      '<div class="rgrid"><div class="rsel"><div class="lbl">Andar</div><select data-rfloor="'+i+'" aria-label="Andar da sala '+esc(r.name)+'">'+CFG.floors.map(f=>'<option value="'+f.id+'"'+(c.floor===f.id?' selected':'')+'>'+esc(floorLabel(f.id))+'</option>').join('')+'</select></div>'+
+      '<div class="rsel"><div class="lbl">Modelo</div><select data-rmodel="'+i+'" aria-label="Modelo da sala '+esc(r.name)+'">'+models.map(m=>'<option value="'+m[0]+'"'+(c.model===m[0]?' selected':'')+'>'+m[1]+'</option>').join('')+'</select></div>'+
+      '<div class="rsel"><div class="lbl">Cadeiras</div><div class="stepper"><button type="button" class="ib" data-rseat="'+i+':-1" aria-label="Menos uma cadeira">−</button><b>'+c.seats+'</b><button type="button" class="ib" data-rseat="'+i+':1" aria-label="Mais uma cadeira">+</button></div></div></div>'+
+      '<div class="prev">'+previewSvg(c.model||'round',c.seats||6)+'</div>'+ag+
+      (per[c.floor]>6?'<p class="warnt">Este andar tem '+per[c.floor]+' salas, mas só 6 aparecem em 3D.</p>':'')+'</div>';
+  }).join('')+'</div>';
+  return h;
+}
+$('#cbody').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b||b.disabled)return;const d=b.dataset;
+  if(b.id==='addRoom'){
+    const fid=$('#newRoomFloor').value;
+    if(floorRooms(fid).length>=6){alert('Cada andar mostra até 6 salas. Escolha outro andar.');return}
+    addCustomRoom(fid);afterCfgChange(true);return;
+  }
+  if(d.cdel){if(confirm('Excluir esta sala?')){removeCustomRoom(d.cdel);afterCfgChange(true)}return}
+  if(d.cmdel){const p=d.cmdel.split(':'),c=(CFG.custom||[]).find(x=>x.id===p[0]);if(c){c.meets.splice(+p[1],1);syncCustom();afterCfgChange(true)}return}
+  if(d.cmadd){
+    const f=b.closest('.cmform'),c=(CFG.custom||[]).find(x=>x.id===d.cmadd);if(!f||!c)return;
+    const v=k=>f.querySelector('[data-cm="'+k+'"]').value,a=toMin(v('ini')),z=toMin(v('fim'));
+    if(a==null||z==null||z<=a){alert('Informe início e fim, com o fim depois do início.');return}
+    c.meets=c.meets||[];c.meets.push({ini:a,fim:z,assunto:v('assunto').trim(),resp:v('resp').trim(),n:Math.max(0,+v('n')||0)});syncCustom();afterCfgChange(true);return;
+  }
+});
+cfgM.addEventListener('change',e=>{
+  const t=e.target,d=t.dataset;
+  if(d.fnum){const f=floorObj(d.fnum),v=parseInt(t.value,10);if(f&&isFinite(v)){f.num=clamp(v,-5,200);if(!fname(f))f.name='Andar '+f.num;afterCfgChange(true)}}
+  else if(d.cname){const c=(CFG.custom||[]).find(x=>x.id===d.cname);if(c){renameCustom(c,t.value);afterCfgChange(true)}}
+  else if(d.ccap){const c=(CFG.custom||[]).find(x=>x.id===d.ccap);if(c){c.cap=clamp(parseInt(t.value,10)||6,1,200);syncCustom();afterCfgChange(true)}}
+});
+$('#edNewRoom').addEventListener('click',()=>{
+  const sn=v=>Math.round(v*2)/2,c=addCustomRoom(CUR,{x:clamp(sn(cam.tx),-14,14),z:clamp(sn(cam.tz),-9,8)});
+  if(!c){$('#edSel').textContent='Cada andar mostra até 6 salas.';return}
+  buildWorld();edSelect('r:'+c.name);
+});
+function delEditRoom(key){
+  const c=(CFG.custom||[]).find(x=>'r:'+x.name===key);if(!c)return;
+  removeCustomRoom(c.id);SEL=null;ensureCfg();buildWorld();edBarUI();checkFocus();
+}
+
+/* ---- Convenia: sexo e desligados ---- */
+const CVC='dp3d.cvc.v1',CVRUN={};
+const cvLoad=()=>{try{return JSON.parse(localStorage.getItem(CVC)||'{}')}catch(e){return {}}};
+const cvSave=c=>{try{localStorage.setItem(CVC,JSON.stringify(c))}catch(e){}};
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function cvGet(url,hdr){
+  for(let t=0;t<3;t++){
+    const r=await fetch(url,{headers:hdr,cache:'no-store'});
+    if(r.status===429){await sleep(30000);continue}
+    if(!r.ok)throw new Error('A Convenia respondeu com erro '+r.status+(r.status===401||r.status===403?' (confira o token e as permissões dele)':'')+'.');
+    return r.json();
+  }
+  throw new Error('A Convenia limitou as consultas (50 por minuto). Tente de novo em instantes.');
+}
+async function convStart(src){
+  const cfg=src.cfg,hdr=parseHdrs(cfg.hdr),m=String(cfg.url).match(/^(https?:\/\/[^/]+\/api\/v3)/i),base=m?m[1]:'https://public-api.convenia.com.br/api/v3';
+  if(CVRUN[src.id]){setStatus('ok','A sincronização da Convenia já está em andamento.');return true}
+  const act=await apiFetchRaw(cfg.url,hdr,cfg.path||'data');
+  let dis=[];
+  try{const d=new Date();d.setFullYear(d.getFullYear()-1);dis=await apiFetchRaw(base+'/employees/dismissed?paginate=200&from_date='+iso(d),hdr,cfg.path||'data')}catch(e){}
+  const aid=new Set(act.map(x=>String(x.id)));
+  dis=dis.filter(x=>x&&x.id!=null&&!aid.has(String(x.id)));
+  const cache=cvLoad(),need=[];
+  dis.forEach(x=>{const c=cache[x.id];if(!c||!c.x)need.push([String(x.id),true])});
+  act.forEach(x=>{if(!cache[x.id])need.push([String(x.id),false])});
+  const dset=new Set(dis.map(x=>String(x.id)));
+  const rows=()=>{
+    const out=act.map(x=>{const c=cache[x.id],o=Object.assign({},x);if(c&&c.g&&c.g!=='-')o.gender=c.g;return o});
+    dis.forEach(x=>{const c=cache[x.id];if(c&&c.x){const o=Object.assign({},c.x);if(x.dismissal&&x.dismissal.date)o.dismissal={date:x.dismissal.date};if(c.g&&c.g!=='-')o.gender=c.g;out.push(o)}});
+    return out;
+  };
+  const tables=()=>{const t=[{name:'Convenia',rows:toRows(rows())}];return t};
+  const push=prog=>ingest(src,tables(),{prog});
+  if(!push(need.length?'buscando sexo e desligados: 0/'+need.length:''))return false;
+  if(need.length){
+    CVRUN[src.id]=true;
+    (async()=>{
+      try{
+        let n=0;
+        for(const [id,isDis] of need){
+          if(!SRCS.some(s=>s.id===src.id))return;
+          let d;
+          try{const j=await cvGet(base+'/employees/'+encodeURIComponent(id),hdr);d=(j&&j.data&&!Array.isArray(j.data))?j.data:(j&&Array.isArray(j.data)?j.data[0]:j)||{}}
+          catch(e){if(/erro 404/.test(e.message)){cache[id]={g:'-'};n++;continue}throw e}
+          const g=String(d.gender||'').trim().toUpperCase().charAt(0);
+          cache[id]={g:(g==='M'||g==='F')?g:'-'};
+          if(isDis||dset.has(id))cache[id].x={name:d.name,last_name:d.last_name,hiring_date:d.hiring_date,salary:d.salary,department:d.department,cost_center:d.cost_center,job:d.job,dismissal:d.dismissal};
+          n++;
+          if(n%40===0){cvSave(cache);push('buscando sexo e desligados: '+n+'/'+need.length)}
+          await sleep(1400);
+        }
+        cvSave(cache);push('');
+        const t=new Date();$('#status').textContent+=' Sexo e desligados completos às '+String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0')+'.';
+      }catch(e){
+        cvSave(cache);
+        const r=SRCS.find(s=>s.id===src.id);const msg=(e instanceof TypeError)?'Não consegui continuar a consulta à Convenia (rede ou CORS).':(e.message||'Falha na Convenia.');
+        if(r){r.err=msg+' O que já foi buscado ficou salvo; clique em Atualizar para continuar.';r.prog='';saveSrcs();srcUI()}
+        setStatus('err',msg);
+      }finally{CVRUN[src.id]=false}
+    })();
+  }
+  return true;
+}
 
 /* =================== INÍCIO =================== */
 function fail(msg){const m=$('#msg3d');m.hidden=false;m.textContent=msg}
