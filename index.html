@@ -3073,10 +3073,11 @@ $('#clkNow').addEventListener('click',()=>{const n=new Date(),m=n.getHours()*60+
 setInterval(()=>{if(!CLOCK.sim){const n=new Date(),m=n.getHours()*60+n.getMinutes();if(m!==CLOCK.min&&m>=420&&m<=1140){CLOCK.min=m;clockUI();applyClock();greet()}}},30000);
 
 function greet(){
+  let upd='';try{const ua=SRCS.filter(x=>x.kind==='api'&&x.at).map(x=>x.at);if(ua.length){const t=new Date(Math.max(...ua));upd='<p style="font-size:12px;opacity:.75">Dados da API atualizados às '+String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0')+'</p>'}}catch(e){}
   const h=new Date().getHours(),sd=h<12?'Bom dia':h<18?'Boa tarde':'Boa noite';
   const busy=ROOMS.filter(r=>roomStatus(r,CLOCK.min).busy).length;
   const fl=floorObj(CUR);
-  $('#hello').innerHTML='<h1>'+sd+', DP</h1><p><span class="live"></span>'+(fl?esc(floorLabel(CUR)):'')+'</p><p>'+fmtInt(S.active)+' colaboradores ativos · '+(ROOMS.length?busy+' de '+ROOMS.length+' salas ocupadas às '+hhmm(CLOCK.min):'salas de reunião: —')+'</p><p style="margin-top:6px">Clique no telão, em uma sala, mesa, pessoa ou no arquivo da folha. Arraste para girar.</p>';
+  $('#hello').innerHTML='<h1>'+sd+', DP</h1><p><span class="live"></span>'+(fl?esc(floorLabel(CUR)):'')+'</p><p>'+fmtInt(S.active)+' colaboradores ativos · '+(ROOMS.length?busy+' de '+ROOMS.length+' salas ocupadas às '+hhmm(CLOCK.min):'salas de reunião: —')+'</p>'+upd+'<p style="margin-top:6px">Clique no telão, em uma sala, mesa, pessoa ou no arquivo da folha. Arraste para girar.</p>';
   $('#sampleTag').hidden=true;
 }
 
@@ -3993,8 +3994,8 @@ function packBoxes(items){
   });
   return {specs:out,used:used+colW};
 }
-function roomPlan(rids){
-  const L=LAY(CUR),hid=L.h||[],items=rids.map(ri=>{const s=rsz(ROOMS[ri]);return {w:s[0],d:s[1]}}),lounges=[];  const anyMoved=Object.keys(L.p).some(k=>k[0]==='r');
+function roomPlan(rids){  const L=LAY(CUR),hid=L.h||[],items=rids.map(ri=>{const s=rsz(ROOMS[ri]);return {w:s[0],d:s[1]}}),lounges=[];
+  const anyMoved=Object.keys(L.p).some(k=>k[0]==='r');
   if(!anyMoved)for(let k=rids.length;k<Math.max(rids.length,1);k++){const key='l:'+k;if(hid.includes(key))continue;lounges.push(key);items.push({w:RSIZE.P[0],d:RSIZE.P[1]})}
   const pk=packBoxes(items);
   return {specs:pk.specs.slice(0,rids.length),lspecs:pk.specs.slice(rids.length),lounges,zw:Math.max(10,(19.6+EXX-(items.length?pk.used:0)-.5)+19.6)};
@@ -4992,8 +4993,8 @@ function edUp(ok){
   saveCfg();buildWorld();edSelect(en.key);
 }
 function edSelRect(cx,cz,en){
-  if(!selRect)return;en=en||(SEL&&EG.get(SEL));
-  if(!en||!EDIT){selRect.visible=false;return}  if(cx==null){cx=en.x+en.ox;cz=en.z+en.oz}
+  if(!selRect)return;en=en||(SEL&&EG.get(SEL));  if(!en||!EDIT){selRect.visible=false;return}
+  if(cx==null){cx=en.x+en.ox;cz=en.z+en.oz}
   selRect.position.set(cx,.09,cz);selRect.scale.set(en.hw*2+.3,en.hd*2+.3,1);selRect.visible=true;
 }
 function edSelect(k){SEL=(k&&EG.has(k))?k:null;edSelRect();edBarUI()}
@@ -5110,7 +5111,7 @@ function applySources(){
     const nm=mergeEmps(),sg=nm.map(sigE).join('\n'),sr=JSON.stringify(mergeRooms());
     if(sg===SIG0&&sr===SIGR&&nm.length===EMPS.length){
       nm.forEach((n,i)=>{const o=EMPS[i];o.alm=n.alm;o.almIni=n.almIni;o.almFim=n.almFim;o.bat=n.bat;o.atr=n.atr;o.bh=n.bh;o.fv=n.fv;EXF.forEach(f=>{o[f]=n[f]});EMIX=null});
-      saveSrcs();save();srcUI();lunchSync(false);drawScreen();return;
+      saveSrcs();save();srcUI();lunchSync(false);drawScreen();greet();return;
     }
   }
   const wasSample=SOURCE==='exemplo';
@@ -5201,11 +5202,21 @@ const PRE={
   generic:{name:'Outro sistema',cat:'JSON ou CSV',c:'#64748B',l:'+',url:'',path:'',hdr:'Authorization: Bearer SEU_TOKEN',note:'Qualquer API que devolva uma lista em JSON ou CSV. Cole a URL em Opções avançadas.'}
 };
 let apiEditId=null;const TIM={};
-function apiSchedule(){
-  Object.keys(TIM).forEach(k=>{clearInterval(TIM[k]);delete TIM[k]});
-  SRCS.forEach(s=>{const n=s.cfg&&s.cfg.every;if(s.kind==='api'&&n>0)TIM[s.id]=setInterval(()=>{if(document.visibilityState!=='hidden'&&!EDIT)refreshSrc(s.id)},n*60000)});
+function apiSchedule(){Object.keys(TIM).forEach(k=>{clearInterval(TIM[k]);delete TIM[k]})}
+const REFBUSY={};
+async function autoTick(force){
+  if(typeof EDIT!=='undefined'&&EDIT)return;
+  for(const s of SRCS.slice()){
+    if(s.kind!=='api'||!s.cfg||!(s.cfg.every>0)||REFBUSY[s.id])continue;
+    const last=Math.max(s.at||0,s.tried||0);
+    if(!force&&Date.now()-last<s.cfg.every*60000-2000)continue;
+    REFBUSY[s.id]=1;s.tried=Date.now();
+    try{await refreshSrc(s.id)}catch(e){}finally{REFBUSY[s.id]=0}
+  }
 }
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&!EDIT)SRCS.forEach(s=>{if(s.kind==='api'&&s.cfg&&s.cfg.every>0&&Date.now()-s.at>s.cfg.every*60000)refreshSrc(s.id)})});
+setInterval(()=>autoTick(false),15000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')autoTick(false)});
+addEventListener('focus',()=>autoTick(false));addEventListener('online',()=>autoTick(true));
 function parseHdrs(t){const o={};String(t||'').split(/\r?\n/).forEach(l=>{const i=l.indexOf(':');if(i>0){const k=l.slice(0,i).trim(),v=l.slice(i+1).trim();if(k&&v)o[k]=v}});return o}
 function dig(o,path){return String(path).split('.').filter(Boolean).reduce((a,k)=>a==null?a:a[k],o)}
 function findArr(o,d,pf){
@@ -5307,6 +5318,7 @@ async function apiRun(src){
     const net=e instanceof TypeError;
     let msg=net?'Não consegui acessar a API. Confira a URL (https) e se o servidor libera CORS para páginas no navegador (Access-Control-Allow-Origin).'+(cfg.preset==='convenia'?' A Convenia pode não liberar acesso direto pelo navegador; nesse caso use um serviço intermediário no formato do texto de especificação.':''):(e.message||'Falha ao ler a API.');
     setStatus('err',msg);
+    try{if($('#modal').hidden)showMsg3d('Não consegui atualizar '+(src.label||'a API')+': '+msg.slice(0,90),5000)}catch(e){}
     const r=SRCS.find(s=>s.id===src.id);if(r){r.err=msg;saveSrcs();srcUI()}
     return false;
   }
@@ -5640,7 +5652,7 @@ function boot(){
   Object.assign(cam,overviewCam());cam.sx=0;cam.sy=0;
   buildWorld();greet();chipsUI();
   requestAnimationFrame(frame);srcUI();apiSchedule();bootRefresh();
-  window.__dp={THEME,focusOn,cam,PERS,fadeSwitch,setEdit,addExtra,EG,apiRun,ingest,get SRCS(){return SRCS},scr:(x,z)=>{const v=new THREE.Vector3(x,0,z).project(camera),r=cv.getBoundingClientRect();return {x:r.left+(v.x+1)/2*r.width,y:r.top+(1-v.y)/2*r.height}},get CFG(){return CFG},get CUR(){return CUR},get fail(){return !OK},get EMPS(){return EMPS},THEME,applyTheme,applyWallTex,buildWorld,elevTrip,elevOpen,saveCfg,applyTheme,lunchSync,apiSchedule,refreshSrc};
+  window.__dp={THEME,focusOn,cam,PERS,fadeSwitch,setEdit,addExtra,EG,apiRun,ingest,get SRCS(){return SRCS},scr:(x,z)=>{const v=new THREE.Vector3(x,0,z).project(camera),r=cv.getBoundingClientRect();return {x:r.left+(v.x+1)/2*r.width,y:r.top+(1-v.y)/2*r.height}},get CFG(){return CFG},get CUR(){return CUR},get fail(){return !OK},get EMPS(){return EMPS},THEME,applyTheme,applyWallTex,buildWorld,elevTrip,elevOpen,saveCfg,applyTheme,lunchSync,apiSchedule,refreshSrc,autoTick};
 }
 const fontP=(document.fonts&&document.fonts.load)?Promise.race([document.fonts.load('800 40px "Plus Jakarta Sans"'),new Promise(r=>setTimeout(r,1500))]):Promise.resolve();
 fontP.catch(()=>{}).then(boot);
