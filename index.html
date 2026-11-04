@@ -151,7 +151,8 @@ details.adv input,details.adv textarea{font:inherit;border:1px solid var(--line)
 .drop b{font-size:15px}.drop span{color:var(--muted);font-size:12.5px}
 textarea{width:100%;min-height:96px;resize:vertical;font:12px/1.5 ui-monospace,Menlo,Consolas,monospace;border:1px solid var(--line);border-radius:14px;padding:10px;background:var(--surface);color:var(--ink)}
 code.tpl{display:block;font:11.5px/1.5 ui-monospace,Menlo,Consolas,monospace;background:var(--soft);border-radius:12px;padding:10px;overflow-x:auto;white-space:pre;color:#2E3646}
-.status{font-size:13px;min-height:20px;font-weight:600}
+.status{font-size:13px;min-height:20px;font-weight:600;overflow-wrap:anywhere;max-height:8.5em;overflow:auto}
+.modal>*{min-width:0;max-width:100%}.apibox,.apibox>*,.srow>*{min-width:0;overflow-wrap:anywhere}.apibox .chk{white-space:normal;align-items:flex-start;line-height:1.35}.apibox .chk input{width:auto;margin-top:2px;flex:none}
 .status.err{color:var(--bad)}.status.ok{color:var(--ok)}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chip{font-size:11px;font-weight:700;border-radius:999px;padding:3px 9px;background:var(--soft);color:var(--faint)}
@@ -391,7 +392,8 @@ label.ibtn input{width:18px;height:18px;border:0;padding:0;background:none;curso
           <input id="ewBase" type="url" placeholder="URL base (ex.: https://api.suaempresa.ewvon.com.br)" autocomplete="off" aria-label="URL base da API Ewvon">
           <input id="ewKey" type="password" placeholder="API Key" autocomplete="off" aria-label="API Key da Ewvon">
           <input id="ewPath" type="text" placeholder="Endpoint de colaboradores (ex.: /metrics/users)" autocomplete="off" aria-label="Endpoint dos colaboradores">
-          <label class="chk" id="ewProxyRow" style="font-size:12.5px"><input type="checkbox" id="ewProxy"> Conectar pelo servidor da Vercel (função /api/ewvon): evita o erro de CORS e permite guardar a chave e o token nas variáveis EWVON_KEY e EWVON_TOKEN da Vercel (aí os dois campos podem ficar vazios)</label>
+          <label class="chk" id="ewProxyRow" style="font-size:12.5px"><input type="checkbox" id="ewProxy"> Usar o servidor da Vercel (recomendado)</label>
+          <p class="note" style="margin:0;font-size:12px">Evita o erro de CORS. Se EWVON_KEY e EWVON_TOKEN estiverem na Vercel, a chave e o token podem ficar vazios.</p>
           <input id="ewPathR" type="text" placeholder="Endpoint de salas (ex.: /meeting-rooms, vazio = sem salas)" autocomplete="off" aria-label="Endpoint das salas">
         </div>
         <div id="apiSubRow" hidden><input id="apiSub" type="text" placeholder="Domínio da conta" autocomplete="off" aria-label="Domínio da conta"></div>
@@ -957,7 +959,7 @@ const SYN={
   faltas:['faltas','ausencias','faltasmes','absences','absence','absencecount'],
   he:['horasextras','horaextra','horasextra','he','hrsextras','overtime','overtimehours'],
   sexo:['sexo','genero','gender','sex'],
-  alm:['almoco','emalmoco','noalmoco','saiualmoco','emintervalo','pausa','intervaloalmoco','almocoativo','statusalmoco','lunch','atlunch','onlunch','inlunch','intervalo','nointervalo','almocando'],
+  alm:['almoco','almocoagora','emalmoco','noalmoco','saiualmoco','emintervalo','pausa','intervaloalmoco','almocoativo','statusalmoco','lunch','atlunch','onlunch','inlunch','intervalo','nointervalo','almocando'],
   almIni:['inicioalmoco','almocoinicio','almocoini','lunchstart','iniciointervalo','saidaalmoco','lunchbegin'],
   almFim:['fimalmoco','almocofim','lunchend','retornoalmoco','fimintervalo','voltaalmoco','voltaalmoco'],
   kc:['cpf','cpffuncionario','numerodocpf','taxid','documento'],
@@ -995,8 +997,7 @@ function detect(rows,syn){
 }
 function parseText(text){
   text=text.replace(/^﻿/,'');
-  const first=text.split(/\r?\n/,1)[0]||'';
-  const cnt=ch=>first.split(ch).length-1;
+  const first=text.split(/\r?\n/,1)[0]||'';  const cnt=ch=>first.split(ch).length-1;
   const delim=['\t',';',','].reduce((a,b)=>cnt(b)>cnt(a)?b:a,'\t');
   const rows=[];let row=[],cur='',q=false;
   for(let i=0;i<text.length;i++){
@@ -1131,7 +1132,8 @@ function ensureCfg(){
     const c=CFG.rooms[r.name]=CFG.rooms[r.name]||{};
     if(!ids.has(c.floor))c.floor=roomsFloor();
     if(!c.model)c.model=(r.cap>8?'long':'round');
-    if(!c.seats)c.seats=clamp(Math.round(r.cap||6),2,12);
+    if(ROOMSRC==='fontes'&&c.seatsAuto!==false&&!r.custom)c.seats=clamp(Math.round(r.cap||6),2,12);
+    else if(!c.seats)c.seats=clamp(Math.round(r.cap||6),2,12);
   });
   if(!floorObj(CUR))CUR=startFloor();
 }
@@ -1994,8 +1996,7 @@ function shopTex(i,w,hh){
     for(let p=x0+.5*u;p<x1-.4*u;p+=1.3*u){g.fillStyle='rgba(255,250,210,.9)';g.beginPath();g.arc(p,wy+.2*u,.09*u,0,7);g.fill()}
     const rg=g.createLinearGradient(x0,wy,x0+(x1-x0)*.7,wy+wh);rg.addColorStop(0,'rgba(190,220,245,.38)');rg.addColorStop(.5,'rgba(190,220,245,.08)');rg.addColorStop(1,'rgba(255,255,255,0)');g.fillStyle=rg;g.fillRect(x0+.07*u,wy,x1-x0-.14*u,wh);
     g.fillStyle='rgba(255,255,255,.22)';g.beginPath();g.moveTo(x0+(x1-x0)*.15,wy+wh);g.lineTo(x0+(x1-x0)*.45,wy);g.lineTo(x0+(x1-x0)*.55,wy);g.lineTo(x0+(x1-x0)*.25,wy+wh);g.fill();
-  };
-  win(.25*u,dx-.12*u);win(dx+dw+.12*u,W-.25*u);
+  };  win(.25*u,dx-.12*u);win(dx+dw+.12*u,W-.25*u);
   g.fillStyle='#262A30';g.fillRect(dx-.08*u,wy-.08*u,dw+.16*u,wh+.16*u);
   const dg=g.createLinearGradient(0,wy,0,wy+wh);dg.addColorStop(0,'#E9D7AE');dg.addColorStop(1,'#A78450');g.fillStyle=dg;g.fillRect(dx,wy,dw,wh);
   g.fillStyle='rgba(190,220,245,.3)';g.fillRect(dx,wy,dw,wh);g.fillStyle='#C9CDD2';g.fillRect(dx+dw*.78,wy+wh*.45,.07*u,.5*u);
@@ -2666,9 +2667,23 @@ function ewUsers(arr){
   if(!has('adm')){const i=find(/hire|admiss|joined|startdate/);
     if(i>=0)add('Admissão',r=>ewDay(r[i])||'*');
     else{add('Admissão',()=>'*');notes.push('a API não informa a data de admissão (turnover, admissões e tempo de casa ficam em "—")')}}
+  const info=[];
+  if(!has('alm')&&!has('almIni')){
+    const LRE=/almo|lunch|refei|intervalo|pausa/i,SC=[];
+    nh.forEach((h,i)=>{if(/status|presen|situa|availab|state|activity|atividade|custom|mood|away|emoji|break|pausa|ausen/.test(h)&&!/^(state|statecode|active|ativo)$/.test(h))SC.push(i)});
+    const cnt=new Map();let any=false;
+    SC.forEach(i=>rows.forEach((r,k)=>{if(!k)return;const v=r[i];if(typeof v==='string'&&v.trim()){any=true;const t=v.trim().slice(0,30);cnt.set(t,(cnt.get(t)||0)+1)}}));
+    const hit=r=>(SC.length?SC:nh.map((h,i)=>i)).some(i=>{const v=r[i];return typeof v==='string'&&v.length<=40&&LRE.test(v)});
+    let use=any;if(!use)rows.forEach((r,k)=>{if(k&&hit(r))use=true});
+    if(use){
+      add('Almoço agora',r=>hit(r));
+      const n=rows.slice(1).filter(hit).length;
+      info.push('status lidos: '+[...cnt].sort((a,b)=>b[1]-a[1]).slice(0,5).map(x=>x[0]+' ('+x[1]+')').join(', ')+' · em almoço agora: '+n);
+    }else notes.push('a API não informa quem está almoçando (nenhum campo de status encontrado)');
+  }
   const ai=nh.findIndex(h=>SYN.adm.includes(h));
   if(ai>=0)rows.forEach((r,i)=>{if(i&&!toDate(r[ai]))r[ai]='*'});
-  return {rows,notes};
+  return {rows,notes,info};
 }
 /* participante de reunião -> chaves comparáveis (CPF/e-mail/matrícula em hash, id e nome) */
 function ewPerson(p){
@@ -2736,7 +2751,7 @@ async function ewRun(src,hdr){
       if(rr.length>1)tables.push({name:'Ewvon salas',rows:rr});
     }catch(e){u.notes.push('as salas não carregaram ('+(e.message||'erro')+')')}
   }
-  return {tables,notes:u.notes,fields:u.rows[0]};
+  return {tables,notes:u.notes,fields:u.rows[0],info:(u.info||[]).join(' · ')};
 }
 
 /* ----- câmera ----- */
@@ -2980,8 +2995,7 @@ function pPayroll(){
   if(!HAS.sal)return {title:'Folha de pagamento',sub:'',html:'<p class="note">Sua planilha não tem a coluna Salário, então não há valores para mostrar.</p>',back:null};
   const act=EMPS.filter(e=>isActive(e)&&isFinite(e.sal)),sal=act.map(e=>e.sal).sort((a,b)=>a-b),med=sal.length?sal[Math.floor(sal.length/2)]:0;
   const by=DEPT.map(d=>({name:d.name,v:d.folha})).sort((a,b)=>b.v-a.v).slice(0,10);
-  const B=['até 2,5 mil','2,5 a 4 mil','4 a 6 mil','6 a 10 mil','10 mil+'],T=[2500,4000,6000,10000],c=[0,0,0,0,0];
-  act.forEach(e=>{let k=0;while(k<4&&e.sal>=T[k])k++;c[k]++});
+  const B=['até 2,5 mil','2,5 a 4 mil','4 a 6 mil','6 a 10 mil','10 mil+'],T=[2500,4000,6000,10000],c=[0,0,0,0,0];  act.forEach(e=>{let k=0;while(k<4&&e.sal>=T[k])k++;c[k]++});
   const h='<div><div class="big">'+fmtBRLk(S.folha)+'</div><p class="bigsub">Folha mensal base, sem encargos nem benefícios</p></div>'+
     '<div class="kgrid"><div class="k"><small>Salário médio</small><b>'+fmtBRL(S.salN?S.folha/S.salN:0)+'</b></div><div class="k"><small>Mediana</small><b>'+fmtBRL(med)+'</b></div></div>'+
     '<div class="sec"><h3>Folha por departamento</h3>'+rankRows(by,fmtBRLk,Math.max(...by.map(x=>x.v)),it=>'data-dept="'+esc(it.name)+'"')+'</div>'+
@@ -3228,7 +3242,7 @@ cfgM.addEventListener('click',e=>{
   if(d.tab){CTAB=d.tab;cfgRender();return}
   if(d.fmv){const p=d.fmv.split(':'),i=floorIdx(p[0]),j=i+(+p[1]);if(i>=0&&j>=0&&j<CFG.floors.length){const t=CFG.floors[i];CFG.floors[i]=CFG.floors[j];CFG.floors[j]=t;afterCfgChange(true)}return}
   if(d.fdel){if(CFG.floors.length>1){CFG.floors=CFG.floors.filter(f=>f.id!==d.fdel);afterCfgChange(true)}return}
-  if(d.rseat){const p=d.rseat.split(':'),r=ROOMS[+p[0]];if(r){const c=roomCfg(r);c.seats=clamp((c.seats||6)+(+p[1]),2,12);afterCfgChange(true)}return}
+  if(d.rseat){const p=d.rseat.split(':'),r=ROOMS[+p[0]];if(r){const c=roomCfg(r);c.seats=clamp((c.seats||6)+(+p[1]),2,12);c.seatsAuto=false;afterCfgChange(true)}return}
   if(d.lookreset){CFG.looks={};afterCfgChange(true);return}
   if(b.id==='addFloor'){if(CFG.floors.length<8){CFG.floors.push((()=>{const nx=Math.max(0,...CFG.floors.map(f=>+f.num||0))+1;return {id:uid(),name:'Andar '+nx,num:nx,reception:false}})());afterCfgChange(true)}return}
   if(b.id==='autoFloors'){redistribute();afterCfgChange(true);return}
@@ -3980,8 +3994,7 @@ function packBoxes(items){
   return {specs:out,used:used+colW};
 }
 function roomPlan(rids){
-  const L=LAY(CUR),hid=L.h||[],items=rids.map(ri=>{const s=rsz(ROOMS[ri]);return {w:s[0],d:s[1]}}),lounges=[];
-  const anyMoved=Object.keys(L.p).some(k=>k[0]==='r');
+  const L=LAY(CUR),hid=L.h||[],items=rids.map(ri=>{const s=rsz(ROOMS[ri]);return {w:s[0],d:s[1]}}),lounges=[];  const anyMoved=Object.keys(L.p).some(k=>k[0]==='r');
   if(!anyMoved)for(let k=rids.length;k<Math.max(rids.length,1);k++){const key='l:'+k;if(hid.includes(key))continue;lounges.push(key);items.push({w:RSIZE.P[0],d:RSIZE.P[1]})}
   const pk=packBoxes(items);
   return {specs:pk.specs.slice(0,rids.length),lspecs:pk.specs.slice(rids.length),lounges,zw:Math.max(10,(19.6+EXX-(items.length?pk.used:0)-.5)+19.6)};
@@ -4980,8 +4993,7 @@ function edUp(ok){
 }
 function edSelRect(cx,cz,en){
   if(!selRect)return;en=en||(SEL&&EG.get(SEL));
-  if(!en||!EDIT){selRect.visible=false;return}
-  if(cx==null){cx=en.x+en.ox;cz=en.z+en.oz}
+  if(!en||!EDIT){selRect.visible=false;return}  if(cx==null){cx=en.x+en.ox;cz=en.z+en.oz}
   selRect.position.set(cx,.09,cz);selRect.scale.set(en.hw*2+.3,en.hd*2+.3,1);selRect.visible=true;
 }
 function edSelect(k){SEL=(k&&EG.has(k))?k:null;edSelRect();edBarUI()}
@@ -5038,6 +5050,7 @@ const deE=a=>Object.assign({nome:a[0],depto:a[1],cargo:a[2],sal:a[3]==null?NaN:a
 function saveSrcs(){try{localStorage.setItem(SKEY,JSON.stringify(SRCS.map(s=>Object.assign({},s,{emps:s.emps.map(serE)}))))}catch(e){}}
 function loadSrcs(){
   try{const j=JSON.parse(localStorage.getItem(SKEY)||'null');SRCS=Array.isArray(j)?j.map(s=>Object.assign(s,{emps:(s.emps||[]).map(deE).filter(e=>e.adm)})):[]}catch(e){SRCS=[]}
+  {const last=new Map(),ky=s=>s.cfg.preset+'|'+s.cfg.url+'|'+(s.cfg.urlR||'');SRCS.forEach(s=>{if(s.kind==='api'&&s.cfg){const o=last.get(ky(s));if(!o||(s.at||0)>=(o.at||0))last.set(ky(s),s)}});SRCS=SRCS.filter(s=>!(s.kind==='api'&&s.cfg)||last.get(ky(s))===s)}
   if(!SRCS.length&&SOURCE!=='exemplo'&&EMPS.length)SRCS=[{id:'file:anterior',label:SOURCE,kind:'file',cfg:null,emps:EMPS.slice(),rooms:ROOMSRC!=='exemplo'?ROOMS.slice():[],map:MAPE||{},at:Date.now(),msgs:[],err:''}];
 }
 function parseTables(tables){
@@ -5168,7 +5181,7 @@ const PRE={
   sankhya:{name:'Sankhya',cat:'Gestão de pessoas',c:'#16A34A',l:'S',url:'',path:'data',hdr:'Authorization: Bearer SEU_TOKEN',note:'Cole a URL da API do seu ambiente em Opções avançadas.'},
   factorial:{name:'Factorial',cat:'Gestão de pessoas',c:'#E11D48',l:'F',url:'https://api.factorialhr.com/api/2025-01-01/resources/employees/employees',path:'data',hdr:'x-api-key: SEU_TOKEN',note:'Endereço sugerido. Confirme a versão da API na documentação.'},
   kenjo:{name:'Kenjo',cat:'Gestão de pessoas',c:'#7C3AED',l:'K',url:'https://api.kenjo.io/api/v1/employees',path:'',hdr:'Authorization: Bearer SEU_TOKEN',note:'Endereço sugerido. Confirme na documentação da sua conta.'},
-  ewvon:{name:'Ewvon',cat:'Gestão',c:'#111827',l:'E',url:'',path:'',hdr:'X-API-KEY: SUA_CHAVE\nX-API-TOKEN: SEU_TOKEN',ew:true,tokLabel:'API Token',hdrFn:(t,k)=>['X-API-KEY: '+k,'X-API-TOKEN: '+t].join('\n'),note:'Informe a URL base, a API Key e o API Token. Colaboradores vêm de /metrics/users as salas de /meeting-rooms e as reuniões de /meeting-bookings (você pode trocar os caminhos). O que a API não informa não aparece ou fica em "—".'},
+  ewvon:{name:'Ewvon',cat:'Gestão',c:'#111827',l:'E',url:'',path:'',hdr:'X-API-KEY: SUA_CHAVE\nX-API-TOKEN: SEU_TOKEN',ew:true,tokLabel:'API Token',hdrFn:(t,k)=>['X-API-KEY: '+k,'X-API-TOKEN: '+t].join('\n'),note:'Informe a URL base, a API Key e o API Token. Colaboradores vêm de /metrics/users, as salas de /meeting-rooms e as reuniões de /meeting-bookings (você pode trocar os caminhos). O que a API não informa não aparece ou fica em "—".'},
   nexti:{name:'Nexti',cat:'Ponto e escalas',c:'#0F766E',l:'N',url:'',path:'data',hdr:'Authorization: Bearer SEU_TOKEN',oauth:true,note:'Faça login com Client ID e Secret em Opções avançadas e cole a URL da API da sua conta.'},
   dimep:{name:'Dimep',cat:'Ponto eletrônico',c:'#B91C1C',l:'D',url:'',path:'data',hdr:'Authorization: Bearer SEU_TOKEN',note:'Cole a URL da API da sua conta em Opções avançadas.'},
   henry:{name:'Henry',cat:'Ponto eletrônico',c:'#1E3A8A',l:'H',url:'',path:'data',hdr:'Authorization: Bearer SEU_TOKEN',note:'Cole a URL da API da sua conta em Opções avançadas.'},
@@ -5280,7 +5293,7 @@ async function apiRun(src){
     if(cfg.oauth&&cfg.oauth.url)hdr=Object.assign({},hdr,{Authorization:'Bearer '+await oauthToken(cfg.oauth)});
     if(cfg.preset==='ewvon'){
       const e=await ewRun(src,hdr);
-      if(!ingest(src,e.tables)){$('#status').textContent+=' Campos recebidos da Ewvon: '+(e.fields||[]).join(', ')+'.';return false}
+      if(!ingest(src,e.tables,{prog:e.info})){$('#status').textContent+=' Campos recebidos da Ewvon: '+(e.fields||[]).join(', ')+'.';return false}
       const n=new Date();$('#status').textContent+=(e.notes.length?' Atenção: '+e.notes.join('; ')+'.':'')+' Atualizado às '+String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0')+'.';
       return true;
     }
@@ -5362,7 +5375,7 @@ $('#apiGo').addEventListener('click',async()=>{
   if(!url){setStatus('err','Este sistema não tem endereço padrão: cole a URL da API em Opções avançadas.');$('#apiAdv').open=true;return}
   if(!/^https?:\/\//i.test(url)||(urlR&&!/^https?:\/\//i.test(urlR))){setStatus('err','Informe a URL completa da API, começando com https://.');return}
   if(/SEU_TOKEN/i.test(hdr)){setStatus('err','Cole o token ou a chave da API no campo indicado.');return}
-  const name=$('#apiName').value.trim()||PRE[preset].name,id=apiEditId||'api:'+uid();
+  const name=$('#apiName').value.trim()||PRE[preset].name,dupe=apiEditId?null:SRCS.find(x=>x.kind==='api'&&x.cfg&&x.cfg.preset===preset&&x.cfg.url===url),id=apiEditId||(dupe&&dupe.id)||'api:'+uid();
   setStatus('ok','Consultando a API…');
   const ok=await apiRun({id,label:name,kind:'api',cfg:{preset,url,urlR,hdr,ew:P0.ew?{base:$('#ewBase').value.trim(),path:$('#ewPath').value.trim(),pathR:$('#ewPathR').value.trim(),proxy:$('#ewProxy').checked}:null,path:$('#apiPath').value.trim(),every:+$('#apiEvery').value||0,deep:preset==='convenia'&&$('#apiDeep').checked,oauth:$('#apiOurl').value.trim()?{url:$('#apiOurl').value.trim(),id:$('#apiOid').value.trim(),sec:$('#apiOsec').value}:null}});
   if(ok)apiReset();
@@ -5627,7 +5640,7 @@ function boot(){
   Object.assign(cam,overviewCam());cam.sx=0;cam.sy=0;
   buildWorld();greet();chipsUI();
   requestAnimationFrame(frame);srcUI();apiSchedule();bootRefresh();
-  window.__dp={THEME,focusOn,cam,PERS,fadeSwitch,setEdit,addExtra,EG,apiRun,ingest,get SRCS(){return SRCS},scr:(x,z)=>{const v=new THREE.Vector3(x,0,z).project(camera),r=cv.getBoundingClientRect();return {x:r.left+(v.x+1)/2*r.width,y:r.top+(1-v.y)/2*r.height}},get CFG(){return CFG},get CUR(){return CUR},get fail(){return !OK},get EMPS(){return EMPS},THEME,applyTheme,applyWallTex,buildWorld,elevTrip,elevOpen,saveCfg,applyTheme,lunchSync};
+  window.__dp={THEME,focusOn,cam,PERS,fadeSwitch,setEdit,addExtra,EG,apiRun,ingest,get SRCS(){return SRCS},scr:(x,z)=>{const v=new THREE.Vector3(x,0,z).project(camera),r=cv.getBoundingClientRect();return {x:r.left+(v.x+1)/2*r.width,y:r.top+(1-v.y)/2*r.height}},get CFG(){return CFG},get CUR(){return CUR},get fail(){return !OK},get EMPS(){return EMPS},THEME,applyTheme,applyWallTex,buildWorld,elevTrip,elevOpen,saveCfg,applyTheme,lunchSync,apiSchedule,refreshSrc};
 }
 const fontP=(document.fonts&&document.fonts.load)?Promise.race([document.fonts.load('800 40px "Plus Jakarta Sans"'),new Promise(r=>setTimeout(r,1500))]):Promise.resolve();
 fontP.catch(()=>{}).then(boot);
